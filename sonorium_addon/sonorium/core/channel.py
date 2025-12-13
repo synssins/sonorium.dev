@@ -39,7 +39,9 @@ CHUNK_SIZE = 1024
 DEFAULT_OUTPUT_GAIN = 6.0
 
 # Buffer size for broadcast (number of chunks to keep for late-joining clients)
-BROADCAST_BUFFER_SIZE = 10
+# At 1024 samples per chunk @ 44100Hz, each chunk is ~23ms
+# 50 chunks = ~1.16 seconds of buffer
+BROADCAST_BUFFER_SIZE = 50
 
 
 class ChannelState(str, Enum):
@@ -75,6 +77,9 @@ class Channel:
 
     # Lock for thread-safe operations
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+
+    # Condition for notifying clients of new data
+    _data_available: threading.Condition = field(default_factory=threading.Condition, repr=False)
 
     # Shared audio state
     _theme_stream: Optional[ThemeStream] = field(default=None, repr=False)
@@ -220,9 +225,13 @@ class Channel:
         return mixed.reshape(1, -1)
 
     def _add_to_buffer(self, chunk: np.ndarray):
-        """Add a chunk to the broadcast buffer."""
+        """Add a chunk to the broadcast buffer and notify waiting clients."""
         self._chunk_sequence += 1
         self._broadcast_buffer.append((self._chunk_sequence, chunk))
+
+        # Notify all waiting clients that new data is available
+        with self._data_available:
+            self._data_available.notify_all()
 
     def _ensure_generator_running(self):
         """Start the generator thread if not running."""
@@ -252,7 +261,7 @@ class Channel:
                     except StopIteration:
                         chunk = self._silence
 
-                # Add to broadcast buffer
+                # Add to broadcast buffer (this notifies clients)
                 self._add_to_buffer(chunk)
 
                 # Maintain real-time pacing
@@ -268,6 +277,9 @@ class Channel:
             logger.error(f"Channel {self.id}: Generator error: {e}")
         finally:
             self._generator_running = False
+            # Wake up any waiting clients so they can exit
+            with self._data_available:
+                self._data_available.notify_all()
             logger.info(f"Channel {self.id}: Generator loop stopped")
 
     def stop(self) -> None:
@@ -281,6 +293,10 @@ class Channel:
             self._theme_version += 1
             self.state = ChannelState.IDLE
             self._broadcast_buffer.clear()
+
+            # Wake up any waiting clients
+            with self._data_available:
+                self._data_available.notify_all()
 
     def client_connected(self) -> None:
         """Track a new client connection."""
@@ -299,6 +315,11 @@ class Channel:
     def get_chunks_since(self, since_sequence: int) -> list:
         """Get all chunks since a given sequence number."""
         return [(seq, chunk) for seq, chunk in self._broadcast_buffer if seq > since_sequence]
+
+    def wait_for_data(self, timeout: float = 0.1) -> bool:
+        """Wait for new data to be available. Returns True if data available, False on timeout."""
+        with self._data_available:
+            return self._data_available.wait(timeout)
 
     def get_stream(self):
         """
@@ -337,16 +358,13 @@ class ChannelStream:
         # Start from current position
         self._last_sequence = channel.get_current_sequence()
 
-        # Silence for gaps
-        self._silence = np.zeros((1, CHUNK_SIZE), dtype=np.int16)
-
     def __iter__(self):
         output = av.open(file='.mp3', mode="w")
         bitrate = 128_000
         out_stream = output.add_stream(codec_name='mp3', rate=SAMPLE_RATE, bit_rate=bitrate)
 
         try:
-            while True:
+            while self.channel.state == ChannelState.PLAYING or self.channel._generator_running:
                 # Get new chunks from broadcast buffer
                 chunks = self.channel.get_chunks_since(self._last_sequence)
 
@@ -361,15 +379,8 @@ class ChannelStream:
                         for packet in out_stream.encode(frame):
                             yield bytes(packet)
                 else:
-                    # No new chunks - wait a bit
-                    # Output silence to keep stream alive
-                    frame = av.AudioFrame.from_ndarray(self._silence, format='s16', layout='mono')
-                    frame.rate = SAMPLE_RATE
-
-                    for packet in out_stream.encode(frame):
-                        yield bytes(packet)
-
-                    time.sleep(0.01)  # Small sleep to avoid busy-waiting
+                    # No new chunks - wait for notification (blocks until data or timeout)
+                    self.channel.wait_for_data(timeout=0.05)
 
         finally:
             logger.info(f'Channel {self.channel.id}: Client stream closed')
