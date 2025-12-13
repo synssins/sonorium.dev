@@ -74,7 +74,12 @@ class SessionManager:
     def set_cycle_manager(self, cycle_manager: CycleManager):
         """Set the cycle manager (for deferred initialization)."""
         self.cycle_manager = cycle_manager
-    
+
+    def set_themes(self, themes: IndexList[ThemeDefinition]):
+        """Update themes reference (called after theme refresh)."""
+        self.themes = themes
+        logger.info(f"  SessionManager: Updated themes reference ({len(themes)} themes)")
+
     def get_theme(self, theme_id: str) -> Optional[ThemeDefinition]:
         """Get a theme by ID."""
         if not self.themes:

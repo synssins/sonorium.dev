@@ -603,6 +603,10 @@ class ApiSonorium(api.Base):
 
         logger.info(f'Theme refresh complete: {len(device.themes)} themes loaded')
 
+        # Update session manager's theme reference
+        if self._session_manager:
+            self._session_manager.set_themes(device.themes)
+
         return {
             "status": "ok",
             "themes_count": len(device.themes),
