@@ -827,6 +827,136 @@
             border-color: var(--accent-primary);
         }
 
+        /* Track Mixer */
+        .track-mixer {
+            margin-top: 1rem;
+            border-top: 1px solid var(--border-color);
+            padding-top: 1rem;
+        }
+
+        .track-mixer-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.75rem;
+        }
+
+        .track-mixer-header h4 {
+            margin: 0;
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+        }
+
+        .track-mixer-reset {
+            font-size: 0.75rem;
+            padding: 0.25rem 0.5rem;
+        }
+
+        .track-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .track-item {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.5rem 0.75rem;
+            background: var(--bg-secondary);
+            border-radius: 0.5rem;
+            border: 1px solid var(--border-color);
+        }
+
+        .track-item.muted {
+            opacity: 0.5;
+        }
+
+        .track-mute-btn {
+            width: 28px;
+            height: 28px;
+            border-radius: 4px;
+            border: 1px solid var(--border-color);
+            background: var(--bg-tertiary);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.9rem;
+            transition: all 0.15s ease;
+        }
+
+        .track-mute-btn:hover {
+            background: var(--bg-hover);
+        }
+
+        .track-mute-btn.muted {
+            background: var(--accent-warning);
+            border-color: var(--accent-warning);
+            color: #000;
+        }
+
+        .track-name {
+            flex: 1;
+            font-size: 0.85rem;
+            color: var(--text-primary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            min-width: 0;
+        }
+
+        .track-volume-control {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            min-width: 150px;
+        }
+
+        .track-volume-slider {
+            flex: 1;
+            height: 4px;
+            -webkit-appearance: none;
+            appearance: none;
+            background: var(--bg-tertiary);
+            border-radius: 2px;
+            cursor: pointer;
+        }
+
+        .track-volume-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 14px;
+            height: 14px;
+            background: var(--accent-primary);
+            border-radius: 50%;
+            cursor: pointer;
+        }
+
+        .track-volume-slider::-moz-range-thumb {
+            width: 14px;
+            height: 14px;
+            background: var(--accent-primary);
+            border-radius: 50%;
+            cursor: pointer;
+            border: none;
+        }
+
+        .track-volume-value {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            min-width: 36px;
+            text-align: right;
+        }
+
+        .track-mixer-empty {
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            padding: 1rem;
+            text-align: center;
+        }
+
         /* Themes View Header */
         .themes-header {
             display: flex;
@@ -1816,6 +1946,19 @@
                                 <div class="category-add-row">
                                     <input type="text" id="theme-edit-new-category" placeholder="New category name...">
                                     <button class="btn btn-sm btn-secondary" onclick="addNewCategoryFromEdit()">Add</button>
+                                </div>
+                            </div>
+
+                            <!-- Track Mixer Section -->
+                            <div class="track-mixer">
+                                <div class="track-mixer-header">
+                                    <h4>Track Mixer</h4>
+                                    <button class="btn btn-sm btn-secondary track-mixer-reset" onclick="resetTrackMixer()" title="Reset all tracks to default">
+                                        Reset All
+                                    </button>
+                                </div>
+                                <div id="track-mixer-list" class="track-list">
+                                    <div class="track-mixer-empty">Loading tracks...</div>
                                 </div>
                             </div>
                         </div>
@@ -3245,10 +3388,115 @@
 
             document.getElementById('theme-edit-new-category').value = '';
             document.getElementById('theme-edit-modal').style.display = 'flex';
+
+            // Load track mixer data
+            loadTrackMixer(themeId);
         }
 
         function closeThemeEditModal() {
             document.getElementById('theme-edit-modal').style.display = 'none';
+        }
+
+        // Track Mixer Functions
+        let currentTrackMixerThemeId = null;
+
+        async function loadTrackMixer(themeId) {
+            currentTrackMixerThemeId = themeId;
+            const container = document.getElementById('track-mixer-list');
+            container.innerHTML = '<div class="track-mixer-empty">Loading tracks...</div>';
+
+            try {
+                const result = await api('GET', `/themes/${themeId}/tracks`);
+                if (result.error) {
+                    container.innerHTML = `<div class="track-mixer-empty">${result.error}</div>`;
+                    return;
+                }
+
+                const tracks = result.tracks || [];
+                if (tracks.length === 0) {
+                    container.innerHTML = '<div class="track-mixer-empty">No audio files in this theme</div>';
+                    return;
+                }
+
+                container.innerHTML = tracks.map(track => `
+                    <div class="track-item ${track.muted ? 'muted' : ''}" data-track="${escapeHtml(track.name)}">
+                        <button class="track-mute-btn ${track.muted ? 'muted' : ''}"
+                                onclick="toggleTrackMute('${escapeHtml(track.name)}')"
+                                title="${track.muted ? 'Unmute' : 'Mute'}">
+                            ${track.muted ? '🔇' : '🔊'}
+                        </button>
+                        <span class="track-name" title="${escapeHtml(track.name)}">${escapeHtml(track.name)}</span>
+                        <div class="track-volume-control">
+                            <input type="range" class="track-volume-slider"
+                                   min="0" max="200" value="${Math.round(track.volume * 100)}"
+                                   onchange="setTrackVolume('${escapeHtml(track.name)}', this.value)"
+                                   oninput="updateTrackVolumeDisplay(this)">
+                            <span class="track-volume-value">${Math.round(track.volume * 100)}%</span>
+                        </div>
+                    </div>
+                `).join('');
+            } catch (error) {
+                console.error('Failed to load tracks:', error);
+                container.innerHTML = '<div class="track-mixer-empty">Failed to load tracks</div>';
+            }
+        }
+
+        function updateTrackVolumeDisplay(slider) {
+            const valueSpan = slider.parentElement.querySelector('.track-volume-value');
+            valueSpan.textContent = slider.value + '%';
+        }
+
+        async function setTrackVolume(trackName, volumePercent) {
+            if (!currentTrackMixerThemeId) return;
+
+            const volume = parseFloat(volumePercent) / 100;
+            try {
+                await api('PUT', `/themes/${currentTrackMixerThemeId}/tracks/${encodeURIComponent(trackName)}/volume`, { volume });
+            } catch (error) {
+                console.error('Failed to set track volume:', error);
+                showToast('Failed to set track volume', 'error');
+            }
+        }
+
+        async function toggleTrackMute(trackName) {
+            if (!currentTrackMixerThemeId) return;
+
+            const trackItem = document.querySelector(`.track-item[data-track="${trackName}"]`);
+            const muteBtn = trackItem?.querySelector('.track-mute-btn');
+            const isMuted = muteBtn?.classList.contains('muted');
+
+            try {
+                await api('PUT', `/themes/${currentTrackMixerThemeId}/tracks/${encodeURIComponent(trackName)}/muted`, { muted: !isMuted });
+
+                // Update UI
+                if (trackItem) {
+                    trackItem.classList.toggle('muted');
+                }
+                if (muteBtn) {
+                    muteBtn.classList.toggle('muted');
+                    muteBtn.innerHTML = isMuted ? '🔊' : '🔇';
+                    muteBtn.title = isMuted ? 'Mute' : 'Unmute';
+                }
+            } catch (error) {
+                console.error('Failed to toggle track mute:', error);
+                showToast('Failed to toggle track mute', 'error');
+            }
+        }
+
+        async function resetTrackMixer() {
+            if (!currentTrackMixerThemeId) return;
+
+            if (!confirm('Reset all track volumes and mutes to defaults?')) return;
+
+            try {
+                await api('POST', `/themes/${currentTrackMixerThemeId}/tracks/reset`);
+                // Reload the mixer
+                await loadTrackMixer(currentTrackMixerThemeId);
+                showToast('Track mixer reset to defaults', 'success');
+            } catch (error) {
+                console.error('Failed to reset track mixer:', error);
+                showToast('Failed to reset track mixer', 'error');
+            }
         }
 
         async function addNewCategoryFromEdit() {

@@ -75,6 +75,12 @@ class ApiSonorium(api.Base):
             api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/favorite', method=self.toggle_favorite),
             api.Endpoint(method_http=self.app.get, path='/api/themes/{theme_id}', method=self.get_theme),
 
+            # Track Mixer API
+            api.Endpoint(method_http=self.app.get, path='/api/themes/{theme_id}/tracks', method=self.get_theme_tracks),
+            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name}/volume', method=self.set_track_volume),
+            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name}/muted', method=self.set_track_muted),
+            api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/tracks/reset', method=self.reset_theme_tracks),
+
             # Category API
             api.Endpoint(method_http=self.app.get, path='/api/categories', method=self.list_categories),
             api.Endpoint(method_http=self.app.post, path='/api/categories', method=self.create_category),
@@ -579,11 +585,21 @@ class ApiSonorium(api.Base):
         # Set current theme if we have themes
         if device.themes:
             device.themes.current = device.themes[0]
-            # Enable all recordings
+            # Enable all recordings and apply saved track settings
             for theme in device.themes:
                 if theme.instances:
+                    # Get saved settings for this theme
+                    saved_volumes = {}
+                    saved_muted = {}
+                    if self._state_store:
+                        saved_volumes = self._state_store.settings.track_volumes.get(theme.id, {})
+                        saved_muted = self._state_store.settings.track_muted.get(theme.id, {})
+
                     for inst in theme.instances:
-                        inst.is_enabled = True
+                        # Apply saved volume or default to 1.0
+                        inst.volume = saved_volumes.get(inst.name, 1.0)
+                        # Apply saved muted state (default to enabled/not muted)
+                        inst.is_enabled = not saved_muted.get(inst.name, False)
 
         logger.info(f'Theme refresh complete: {len(device.themes)} themes loaded')
 
@@ -598,7 +614,7 @@ class ApiSonorium(api.Base):
         theme = self.client.device.themes.id.get(theme_id)
         if not theme:
             return {"error": "Theme not found"}
-        
+
         return {
             "id": theme.id,
             "name": theme.name,
@@ -606,6 +622,140 @@ class ApiSonorium(api.Base):
             "url": theme.url,
             "tracks": [{"name": i.name} for i in theme.instances],
         }
+
+    async def get_theme_tracks(self, theme_id: str):
+        """Get all tracks for a theme with volume/mute settings."""
+        theme = self.client.device.themes.id.get(theme_id)
+        if not theme:
+            return {"error": "Theme not found"}
+
+        if not self._state_store:
+            return {"error": "State not available"}
+
+        # Get saved settings
+        track_volumes = self._state_store.settings.track_volumes.get(theme_id, {})
+        track_muted = self._state_store.settings.track_muted.get(theme_id, {})
+
+        tracks = []
+        for inst in theme.instances:
+            tracks.append({
+                "name": inst.name,
+                "volume": track_volumes.get(inst.name, 1.0),
+                "muted": track_muted.get(inst.name, False),
+                "is_enabled": inst.is_enabled,
+            })
+
+        return {
+            "theme_id": theme_id,
+            "theme_name": theme.name,
+            "tracks": tracks,
+        }
+
+    async def set_track_volume(self, theme_id: str, track_name: str, request: Request):
+        """Set volume for a specific track in a theme."""
+        theme = self.client.device.themes.id.get(theme_id)
+        if not theme:
+            return {"error": "Theme not found"}
+
+        if not self._state_store:
+            return {"error": "State not available"}
+
+        try:
+            body = await request.json()
+        except Exception:
+            return {"error": "Invalid JSON body"}
+
+        volume = body.get("volume")
+        if volume is None:
+            return {"error": "Volume is required"}
+
+        # Clamp volume to 0.0 - 2.0 range (0% to 200%)
+        volume = max(0.0, min(2.0, float(volume)))
+
+        # Find the track instance
+        track_inst = None
+        for inst in theme.instances:
+            if inst.name == track_name:
+                track_inst = inst
+                break
+
+        if not track_inst:
+            return {"error": "Track not found"}
+
+        # Update the live instance volume
+        track_inst.volume = volume
+
+        # Persist to settings
+        if theme_id not in self._state_store.settings.track_volumes:
+            self._state_store.settings.track_volumes[theme_id] = {}
+        self._state_store.settings.track_volumes[theme_id][track_name] = volume
+        self._state_store.save()
+
+        return {"status": "ok", "track": track_name, "volume": volume}
+
+    async def set_track_muted(self, theme_id: str, track_name: str, request: Request):
+        """Set muted state for a specific track in a theme."""
+        theme = self.client.device.themes.id.get(theme_id)
+        if not theme:
+            return {"error": "Theme not found"}
+
+        if not self._state_store:
+            return {"error": "State not available"}
+
+        try:
+            body = await request.json()
+        except Exception:
+            return {"error": "Invalid JSON body"}
+
+        muted = body.get("muted")
+        if muted is None:
+            return {"error": "Muted state is required"}
+
+        muted = bool(muted)
+
+        # Find the track instance
+        track_inst = None
+        for inst in theme.instances:
+            if inst.name == track_name:
+                track_inst = inst
+                break
+
+        if not track_inst:
+            return {"error": "Track not found"}
+
+        # Update the live instance
+        track_inst.is_enabled = not muted
+
+        # Persist to settings
+        if theme_id not in self._state_store.settings.track_muted:
+            self._state_store.settings.track_muted[theme_id] = {}
+        self._state_store.settings.track_muted[theme_id][track_name] = muted
+        self._state_store.save()
+
+        return {"status": "ok", "track": track_name, "muted": muted}
+
+    async def reset_theme_tracks(self, theme_id: str):
+        """Reset all track volumes/mutes to defaults for a theme."""
+        theme = self.client.device.themes.id.get(theme_id)
+        if not theme:
+            return {"error": "Theme not found"}
+
+        if not self._state_store:
+            return {"error": "State not available"}
+
+        # Reset live instances
+        for inst in theme.instances:
+            inst.volume = 1.0
+            inst.is_enabled = True
+
+        # Clear persisted settings
+        if theme_id in self._state_store.settings.track_volumes:
+            del self._state_store.settings.track_volumes[theme_id]
+        if theme_id in self._state_store.settings.track_muted:
+            del self._state_store.settings.track_muted[theme_id]
+        self._state_store.save()
+
+        return {"status": "ok", "theme_id": theme_id}
 
     async def toggle_favorite(self, theme_id: str):
         """Toggle favorite status for a theme."""
