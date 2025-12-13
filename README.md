@@ -236,3 +236,5 @@ See LICENSE file for details.
 ## Contributing
 
 Contributions are welcome! Please see the [ROADMAP](ROADMAP.md) for planned features and development direction.
+
+For the latest experimental features and development builds, check out the [Sonorium Dev](https://github.com/synssins/sonorium-dev) repository.
