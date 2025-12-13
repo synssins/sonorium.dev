@@ -1,9 +1,24 @@
+from enum import Enum
 import numpy as np
 
 from sonorium.obs import logger
 from fmtr.tools import av
 
 LOG_THRESHOLD = 500
+
+
+class PlaybackMode(str, Enum):
+    """Playback mode for tracks.
+
+    - CONTINUOUS: Track loops continuously with crossfade (default for long files)
+    - SPARSE: Track plays once at full volume, then silence for an interval before repeating
+    - PRESENCE: Track fades in/out of the mix based on presence value
+    - AUTO: Automatically choose based on file length and presence setting
+    """
+    CONTINUOUS = "continuous"
+    SPARSE = "sparse"
+    PRESENCE = "presence"
+    AUTO = "auto"
 
 # Threshold for "short" audio files that get sparse playback
 SHORT_FILE_THRESHOLD_SECONDS = 15.0
@@ -93,6 +108,7 @@ class RecordingThemeInstance:
         self.presence = 1.0  # How often this track plays: 1.0 = always, 0.5 = half the time, 0 = never
         self.is_enabled = True  # Master enable/disable (mute)
         self.crossfade_enabled = True  # Enable crossfade looping by default
+        self.playback_mode = PlaybackMode.AUTO  # How playback/looping is handled
 
     @property
     def short_file_threshold(self) -> float:
@@ -101,21 +117,32 @@ class RecordingThemeInstance:
             return self.theme.short_file_threshold
         return SHORT_FILE_THRESHOLD_SECONDS
 
+    def _resolve_playback_mode(self) -> PlaybackMode:
+        """Resolve AUTO mode to an actual playback mode based on file characteristics."""
+        if self.playback_mode != PlaybackMode.AUTO:
+            return self.playback_mode
+
+        # AUTO logic: short files use sparse, long files use presence (if < 1.0) or continuous
+        if self.meta.is_short_file(self.short_file_threshold):
+            return PlaybackMode.SPARSE if self.presence < 1.0 else PlaybackMode.CONTINUOUS
+        else:
+            return PlaybackMode.PRESENCE if self.presence < 1.0 else PlaybackMode.CONTINUOUS
+
     def get_stream(self):
-        # For short files with presence < 1.0, use sparse playback
-        # This prevents short sounds (like a horse whinny) from looping repeatedly
-        if self.meta.is_short_file(self.short_file_threshold) and self.presence < 1.0:
+        mode = self._resolve_playback_mode()
+
+        # SPARSE: Play once at full volume, then silence for interval
+        if mode == PlaybackMode.SPARSE:
             return SparsePlaybackStream(self)
 
-        # Get base stream (with or without crossfade looping)
+        # CONTINUOUS or PRESENCE: Start with base looping stream
         if self.crossfade_enabled:
             base_stream = CrossfadeRecordingStream(self)
         else:
             base_stream = RecordingThemeStream(self)
 
-        # Wrap with presence-based mixing if presence < 1.0
-        # This allows tracks to fade in/out of the mix based on presence setting
-        if self.presence < 1.0:
+        # PRESENCE: Wrap with fade in/out based on presence value
+        if mode == PlaybackMode.PRESENCE and self.presence < 1.0:
             return PresenceMixingStream(base_stream, self)
 
         return base_stream

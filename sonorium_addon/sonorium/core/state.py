@@ -112,6 +112,14 @@ class SonoriumSettings:
     # Format: {"theme_id": {"track_name": false}} - only stores disabled tracks
     track_muted: dict[str, dict[str, bool]] = field(default_factory=dict)
 
+    # Per-track volume settings (amplitude control, independent of presence)
+    # Format: {"theme_id": {"track_name": 0.8}} - 0.0 to 1.0, default 1.0
+    track_volume: dict[str, dict[str, float]] = field(default_factory=dict)
+
+    # Per-track playback mode settings
+    # Format: {"theme_id": {"track_name": "sparse"}} - auto/continuous/sparse/presence
+    track_playback_mode: dict[str, dict[str, str]] = field(default_factory=dict)
+
     def to_dict(self) -> dict:
         return asdict(self)
     

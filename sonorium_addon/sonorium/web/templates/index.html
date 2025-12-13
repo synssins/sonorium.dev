@@ -1019,6 +1019,112 @@
             text-align: center;
         }
 
+        /* Track Advanced Settings */
+        .track-advanced-toggle {
+            font-size: 0.6rem;
+            padding: 0.15rem 0.3rem;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 3px;
+            cursor: pointer;
+            color: var(--text-muted);
+            margin-top: 0.25rem;
+        }
+
+        .track-advanced-toggle:hover {
+            background: var(--bg-hover);
+            color: var(--text-primary);
+        }
+
+        .track-advanced-toggle.active {
+            background: var(--accent-primary);
+            color: #fff;
+            border-color: var(--accent-primary);
+        }
+
+        .track-advanced-panel {
+            display: none;
+            width: 100%;
+            margin-top: 0.5rem;
+            padding-top: 0.5rem;
+            border-top: 1px solid var(--border-color);
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .track-advanced-panel.expanded {
+            display: flex;
+        }
+
+        .track-advanced-row {
+            display: flex;
+            flex-direction: column;
+            gap: 0.2rem;
+            width: 100%;
+        }
+
+        .track-advanced-label {
+            font-size: 0.55rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+        }
+
+        .track-volume-control {
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+        }
+
+        .track-volume-slider {
+            flex: 1;
+            height: 4px;
+            -webkit-appearance: none;
+            appearance: none;
+            background: var(--bg-tertiary);
+            border-radius: 2px;
+            cursor: pointer;
+        }
+
+        .track-volume-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 10px;
+            height: 10px;
+            background: var(--text-primary);
+            border-radius: 50%;
+            cursor: pointer;
+        }
+
+        .track-volume-slider::-moz-range-thumb {
+            width: 10px;
+            height: 10px;
+            background: var(--text-primary);
+            border-radius: 50%;
+            cursor: pointer;
+            border: none;
+        }
+
+        .track-volume-value {
+            font-size: 0.55rem;
+            color: var(--text-muted);
+            min-width: 24px;
+            text-align: right;
+        }
+
+        .track-mode-select {
+            width: 100%;
+            font-size: 0.6rem;
+            padding: 0.2rem;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 3px;
+            color: var(--text-primary);
+            cursor: pointer;
+        }
+
+        .track-mode-select option {
+            background: var(--bg-primary);
+        }
+
         /* Themes View Header */
         .themes-header {
             display: flex;
@@ -3495,6 +3601,9 @@
 
                 container.innerHTML = tracks.map(track => {
                     const presencePercent = Math.round(track.presence * 100);
+                    const volumePercent = Math.round((track.volume || 1.0) * 100);
+                    const playbackMode = track.playback_mode || 'auto';
+                    const hasAdvanced = volumePercent !== 100 || playbackMode !== 'auto';
                     return `
                     <div class="track-item ${track.muted ? 'muted' : ''}" data-track="${escapeHtml(track.name)}">
                         <span class="track-presence-value">${presencePercent}%</span>
@@ -3515,6 +3624,31 @@
                             ${track.muted ? '🔇' : '🔊'}
                         </button>
                         <span class="track-name" title="${escapeHtml(track.name)}">${escapeHtml(track.name)}</span>
+                        <button class="track-advanced-toggle ${hasAdvanced ? 'active' : ''}"
+                                onclick="toggleTrackAdvanced(this)"
+                                title="Advanced settings">⚙</button>
+                        <div class="track-advanced-panel">
+                            <div class="track-advanced-row">
+                                <span class="track-advanced-label">Volume</span>
+                                <div class="track-volume-control">
+                                    <input type="range" class="track-volume-slider"
+                                           min="0" max="100" value="${volumePercent}"
+                                           onchange="setTrackVolume('${escapeHtml(track.name)}', this.value)"
+                                           oninput="updateTrackVolumeDisplay(this)">
+                                    <span class="track-volume-value">${volumePercent}%</span>
+                                </div>
+                            </div>
+                            <div class="track-advanced-row">
+                                <span class="track-advanced-label">Mode</span>
+                                <select class="track-mode-select"
+                                        onchange="setTrackPlaybackMode('${escapeHtml(track.name)}', this.value)">
+                                    <option value="auto" ${playbackMode === 'auto' ? 'selected' : ''}>Auto</option>
+                                    <option value="continuous" ${playbackMode === 'continuous' ? 'selected' : ''}>Continuous</option>
+                                    <option value="sparse" ${playbackMode === 'sparse' ? 'selected' : ''}>Sparse</option>
+                                    <option value="presence" ${playbackMode === 'presence' ? 'selected' : ''}>Presence</option>
+                                </select>
+                            </div>
+                        </div>
                     </div>`;
                 }).join('');
             } catch (error) {
@@ -3572,7 +3706,7 @@
         async function resetTrackMixer() {
             if (!currentTrackMixerThemeId) return;
 
-            if (!confirm('Reset all track presence settings and mutes to defaults?')) return;
+            if (!confirm('Reset all track settings to defaults?')) return;
 
             try {
                 await api('POST', `/themes/${currentTrackMixerThemeId}/tracks/reset`);
@@ -3582,6 +3716,58 @@
             } catch (error) {
                 console.error('Failed to reset track mixer:', error);
                 showToast('Failed to reset track mixer', 'error');
+            }
+        }
+
+        function toggleTrackAdvanced(btn) {
+            const trackItem = btn.closest('.track-item');
+            const panel = trackItem.querySelector('.track-advanced-panel');
+            panel.classList.toggle('expanded');
+            btn.classList.toggle('active', panel.classList.contains('expanded'));
+        }
+
+        function updateTrackVolumeDisplay(slider) {
+            const control = slider.closest('.track-volume-control');
+            const valueSpan = control.querySelector('.track-volume-value');
+            valueSpan.textContent = slider.value + '%';
+        }
+
+        async function setTrackVolume(trackName, volumePercent) {
+            if (!currentTrackMixerThemeId) return;
+
+            const volume = parseFloat(volumePercent) / 100;
+            try {
+                await api('PUT', `/themes/${currentTrackMixerThemeId}/tracks/${encodeURIComponent(trackName)}/volume`, { volume });
+                // Update toggle button state
+                const trackItem = document.querySelector(`.track-item[data-track="${trackName}"]`);
+                if (trackItem) {
+                    const btn = trackItem.querySelector('.track-advanced-toggle');
+                    const modeSelect = trackItem.querySelector('.track-mode-select');
+                    const hasAdvanced = volume !== 1.0 || (modeSelect && modeSelect.value !== 'auto');
+                    btn.classList.toggle('active', hasAdvanced);
+                }
+            } catch (error) {
+                console.error('Failed to set track volume:', error);
+                showToast('Failed to set track volume', 'error');
+            }
+        }
+
+        async function setTrackPlaybackMode(trackName, mode) {
+            if (!currentTrackMixerThemeId) return;
+
+            try {
+                await api('PUT', `/themes/${currentTrackMixerThemeId}/tracks/${encodeURIComponent(trackName)}/playback_mode`, { playback_mode: mode });
+                // Update toggle button state
+                const trackItem = document.querySelector(`.track-item[data-track="${trackName}"]`);
+                if (trackItem) {
+                    const btn = trackItem.querySelector('.track-advanced-toggle');
+                    const volumeSlider = trackItem.querySelector('.track-volume-slider');
+                    const hasAdvanced = mode !== 'auto' || (volumeSlider && parseInt(volumeSlider.value) !== 100);
+                    btn.classList.toggle('active', hasAdvanced);
+                }
+            } catch (error) {
+                console.error('Failed to set playback mode:', error);
+                showToast('Failed to set playback mode', 'error');
             }
         }
 
