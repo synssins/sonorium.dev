@@ -5,6 +5,12 @@ from fmtr.tools import av
 
 LOG_THRESHOLD = 500
 
+# Threshold for "short" audio files that get sparse playback
+SHORT_FILE_THRESHOLD_SECONDS = 15.0
+# Sparse playback interval range (seconds between plays)
+SPARSE_MIN_INTERVAL = 30.0
+SPARSE_MAX_INTERVAL = 300.0
+
 # Crossfade duration in seconds for loop transitions
 LOOP_CROSSFADE_DURATION = 1.5
 # Fade duration for tracks fading in/out of the mix
@@ -51,6 +57,16 @@ class RecordingMetadata:
                 logger.warning(f'Could not get duration for {self.path}: {e}')
                 self._duration_samples = SAMPLE_RATE * 60  # Assume 1 minute as fallback
         return self._duration_samples
+
+    @property
+    def duration_seconds(self):
+        """Get total duration in seconds"""
+        return self.duration_samples / SAMPLE_RATE
+
+    @property
+    def is_short_file(self):
+        """Check if this is a short audio file that should use sparse playback"""
+        return self.duration_seconds < SHORT_FILE_THRESHOLD_SECONDS
     
     def _count_samples(self):
         """Fallback: decode entire file to count samples"""
@@ -79,6 +95,11 @@ class RecordingThemeInstance:
         self.crossfade_enabled = True  # Enable crossfade looping by default
 
     def get_stream(self):
+        # For short files with presence < 1.0, use sparse playback
+        # This prevents short sounds (like a horse whinny) from looping repeatedly
+        if self.meta.is_short_file and self.presence < 1.0:
+            return SparsePlaybackStream(self)
+
         # Get base stream (with or without crossfade looping)
         if self.crossfade_enabled:
             base_stream = CrossfadeRecordingStream(self)
@@ -294,6 +315,136 @@ class CrossfadeRecordingStream:
                 logger.info(f'CrossfadeStream [{status}]: chunk #{chunk_count}, samples={samples_played}, vol={vol_mean}')
 
             yield output_data
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        return next(self.gen)
+
+
+class SparsePlaybackStream:
+    """
+    Stream for short audio files (< 15 seconds) that plays the file once,
+    then outputs silence for a randomized interval before playing again.
+
+    This prevents short sounds (like a horse whinny) from looping repeatedly.
+    The interval between plays is randomized based on presence:
+    - presence=1.0: Plays continuously (not sparse - use regular stream)
+    - presence=0.5: Interval is middle of range (~165 seconds average)
+    - presence=0.1: Interval is near max (~270 seconds average)
+
+    The file plays once with fade in/out, then silence until next play.
+    """
+    CHUNK_SIZE = 1_024
+
+    def __init__(self, instance: RecordingThemeInstance):
+        self.instance = instance
+        self.gen = self._gen()
+
+    def _gen(self):
+        import random
+
+        presence = self.instance.presence
+        file_duration_samples = self.instance.meta.duration_samples
+
+        logger.info(f'SparsePlaybackStream: {self.instance.name} - short file ({self.instance.meta.duration_seconds:.1f}s), using sparse playback')
+
+        # Pre-generate fade curves for the short file
+        # Use shorter fade for very short files
+        fade_duration = min(TRACK_FADE_DURATION, self.instance.meta.duration_seconds / 3)
+        fade_samples = int(fade_duration * SAMPLE_RATE)
+        fade_in_curve = np.sin(np.linspace(0, np.pi/2, fade_samples)).astype(np.float32)
+        fade_out_curve = np.cos(np.linspace(0, np.pi/2, fade_samples)).astype(np.float32)
+
+        def get_silent_interval():
+            """Calculate silence duration based on presence (lower presence = longer silence)"""
+            # Invert presence: low presence = long interval, high presence = short interval
+            # presence=0.1 -> factor ~0.9 -> near max interval
+            # presence=0.9 -> factor ~0.1 -> near min interval
+            factor = 1.0 - presence
+            base_interval = SPARSE_MIN_INTERVAL + (SPARSE_MAX_INTERVAL - SPARSE_MIN_INTERVAL) * factor
+            # Add randomization (+/- 30%)
+            variation = random.uniform(0.7, 1.3)
+            return int(base_interval * variation * SAMPLE_RATE)
+
+        def decode_file_once():
+            """Decode the entire file once, returning samples"""
+            resampler = av.AudioResampler(format='s16', layout='mono', rate=SAMPLE_RATE)
+            container = av.open(self.instance.meta.path)
+
+            if len(container.streams.audio) == 0:
+                container.close()
+                return np.zeros(0, dtype=np.float32)
+
+            stream = next(iter(container.streams.audio))
+            samples = []
+
+            for frame_orig in container.decode(stream):
+                for frame_resamp in resampler.resample(frame_orig):
+                    data = frame_resamp.to_ndarray()
+                    # Downmix to mono
+                    data = data.mean(axis=0).astype(np.float32)
+                    samples.append(data.flatten())
+
+            container.close()
+
+            if not samples:
+                return np.zeros(0, dtype=np.float32)
+
+            return np.concatenate(samples)
+
+        chunk_count = 0
+        silence_chunk = np.zeros((1, self.CHUNK_SIZE), dtype=np.int16)
+
+        while True:
+            # Check for updated presence
+            presence = self.instance.presence
+
+            # Decode and play the file once with fade in/out
+            audio_data = decode_file_once()
+
+            if len(audio_data) > 0:
+                # Apply volume
+                audio_data = audio_data * self.instance.volume
+
+                # Apply fade in at start
+                if len(fade_in_curve) <= len(audio_data):
+                    audio_data[:len(fade_in_curve)] *= fade_in_curve
+
+                # Apply fade out at end
+                if len(fade_out_curve) <= len(audio_data):
+                    audio_data[-len(fade_out_curve):] *= fade_out_curve
+
+                # Yield the audio in chunks
+                pos = 0
+                while pos < len(audio_data):
+                    chunk_end = min(pos + self.CHUNK_SIZE, len(audio_data))
+                    chunk = audio_data[pos:chunk_end]
+
+                    # Pad if needed
+                    if len(chunk) < self.CHUNK_SIZE:
+                        chunk = np.concatenate([chunk, np.zeros(self.CHUNK_SIZE - len(chunk), dtype=np.float32)])
+
+                    # Convert to int16
+                    output = np.clip(chunk, -32768, 32767).astype(np.int16).reshape(1, -1)
+
+                    chunk_count += 1
+                    if chunk_count % LOG_THRESHOLD == 0:
+                        logger.debug(f'SparsePlaybackStream: {self.instance.name} playing chunk #{chunk_count}')
+
+                    yield output
+                    pos += self.CHUNK_SIZE
+
+            # Now output silence for the interval
+            silent_samples = get_silent_interval()
+            silent_chunks = silent_samples // self.CHUNK_SIZE
+
+            logger.debug(f'SparsePlaybackStream: {self.instance.name} entering silence for {silent_samples/SAMPLE_RATE:.1f}s ({silent_chunks} chunks)')
+
+            for _ in range(silent_chunks):
+                chunk_count += 1
+                yield silence_chunk
 
     def __iter__(self):
         return self

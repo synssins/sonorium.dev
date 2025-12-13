@@ -647,6 +647,8 @@ class ApiSonorium(api.Base):
                 "presence": track_presence.get(inst.name, 1.0),
                 "muted": track_muted.get(inst.name, False),
                 "is_enabled": inst.is_enabled,
+                "duration_seconds": round(inst.meta.duration_seconds, 1),
+                "is_short_file": inst.meta.is_short_file,
             })
 
         # Sort tracks alphabetically by name
