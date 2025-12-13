@@ -407,7 +407,7 @@ def create_api_router(
     @router.put("/sessions/{session_id}")
     async def update_session(session_id: str, request: UpdateSessionRequest) -> SessionResponse:
         """Update an existing session."""
-        session = session_manager.update(
+        session, added_speakers, removed_speakers = session_manager.update(
             session_id=session_id,
             theme_id=request.theme_id,
             speaker_group_id=request.speaker_group_id,
@@ -418,6 +418,11 @@ def create_api_router(
         )
         if not session:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+
+        # Apply live speaker changes if session is playing
+        if added_speakers or removed_speakers:
+            await session_manager.apply_speaker_changes(session, added_speakers, removed_speakers)
+
         return _session_to_response(session, session_manager)
     
     @router.delete("/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)

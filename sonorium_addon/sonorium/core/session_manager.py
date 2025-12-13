@@ -294,46 +294,51 @@ class SessionManager:
         custom_name: str = None,
         volume: int = None,
         cycle_config: CycleConfig = None,
-    ) -> Optional[Session]:
+    ) -> tuple[Optional[Session], set, set]:
         """
         Update an existing session.
-        
+
         Only provided fields are updated.
         If theme changes on a playing session, triggers seamless crossfade.
-        
+
         Returns:
-            Updated session, or None if not found
+            Tuple of (session, added_speakers, removed_speakers)
+            Returns (None, set(), set()) if session not found
         """
         session = self.state.sessions.get(session_id)
         if not session:
             logger.warning(f"  Session {session_id} not found")
-            return None
-        
+            return None, set(), set()
+
         # Track if theme is changing
         theme_changed = theme_id is not None and theme_id != session.theme_id
-        
+
+        # Get old speakers before update (for live speaker management)
+        old_speakers = set(self.get_resolved_speakers(session)) if session.is_playing else set()
+        speakers_changing = speaker_group_id is not None or adhoc_selection is not None
+
         # Update fields if provided
         if theme_id is not None:
             session.theme_id = theme_id
-        
+
         if speaker_group_id is not None:
             session.speaker_group_id = speaker_group_id
             session.adhoc_selection = None  # Clear ad-hoc if using group
-        
+
         if adhoc_selection is not None:
             session.adhoc_selection = adhoc_selection
             session.speaker_group_id = None  # Clear group if using ad-hoc
-        
+
         if custom_name is not None:
             session.name = custom_name
             session.name_source = NameSource.CUSTOM
-        
+
         if volume is not None:
             session.volume = max(0, min(100, volume))
-        
+
         if cycle_config is not None:
             session.cycle_config = cycle_config
-        
+
         # Re-generate auto-name if needed
         if custom_name is None and session.name_source != NameSource.CUSTOM:
             group = None
@@ -342,19 +347,59 @@ class SessionManager:
             session.name, session.name_source = self.generate_session_name(
                 session.adhoc_selection, group
             )
-        
+
         self.state.save()
-        
+
         # If session is playing and theme changed, trigger crossfade
         if session.is_playing and theme_changed and session.theme_id:
             self._trigger_theme_crossfade(session)
-            
+
             # Reset cycle timer since theme was manually changed
             if self.cycle_manager:
                 self.cycle_manager.reset_cycle(session_id)
-        
+
+        # Calculate speaker changes for live management
+        added_speakers = set()
+        removed_speakers = set()
+        if session.is_playing and speakers_changing:
+            new_speakers = set(self.get_resolved_speakers(session))
+            added_speakers = new_speakers - old_speakers
+            removed_speakers = old_speakers - new_speakers
+            if added_speakers:
+                logger.info(f"  Speakers added: {added_speakers}")
+            if removed_speakers:
+                logger.info(f"  Speakers removed: {removed_speakers}")
+
         logger.info(f"  Updated session '{session.name}'")
-        return session
+        return session, added_speakers, removed_speakers
+
+    async def apply_speaker_changes(
+        self,
+        session: Session,
+        added_speakers: set,
+        removed_speakers: set,
+    ) -> None:
+        """
+        Apply live speaker changes to a playing session.
+
+        Stops playback on removed speakers and starts on added speakers.
+        """
+        if not self.media_controller:
+            return
+
+        stream_url = self.get_stream_url(session)
+        volume_level = session.volume / 100.0
+
+        # Stop removed speakers
+        if removed_speakers:
+            logger.info(f"  Stopping {len(removed_speakers)} removed speaker(s)")
+            await self.media_controller.stop_multi(list(removed_speakers))
+
+        # Start added speakers
+        if added_speakers:
+            logger.info(f"  Starting {len(added_speakers)} added speaker(s)")
+            await self.media_controller.play_media_multi(list(added_speakers), stream_url)
+            await self.media_controller.set_volume_multi(list(added_speakers), volume_level)
     
     def update_cycle_config(
         self,
