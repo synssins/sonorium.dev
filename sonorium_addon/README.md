@@ -8,17 +8,27 @@
 
 Sonorium lets you create immersive ambient audio environments throughout your home. Stream richly layered soundscapes—from distant thunder and rainfall to forest ambiance and ocean waves—to any combination of media players in your Home Assistant setup.
 
-## Current Development (v1.1.5-dev)
+## What's New in v1.1
 
-**Active Work:**
-- **Broadcast Audio Model** - Rewrote channel streaming to use a radio-station model. All speakers tuned to the same channel hear the exact same audio stream, joining at the current playback position rather than starting their own independent streams.
-- **Track Presence Control** - Tracks now have a "presence" setting (0-100%) that controls how often they appear in the mix, independent of volume. Low presence tracks fade in and out naturally rather than playing constantly.
+### Track Mixer with Advanced Controls
+Fine-tune how each audio file plays within a theme:
 
-**Recent Changes:**
-- Reduced loop crossfade duration to 1.5 seconds for smoother single-track themes
-- Track mixer UI now adapts width to content
-- Added visible fill bars to presence sliders
-- Shared audio generator with broadcast buffer for synchronized multi-speaker playback
+- **Presence Control** - Set how often each track appears in the mix (0-100%). Low presence tracks fade in and out naturally rather than playing constantly.
+- **Per-Track Volume** - Adjust the amplitude of individual tracks independent of presence.
+- **Playback Modes** - Choose how each track behaves:
+  - **Auto** - Automatically selects the best mode based on file length
+  - **Continuous** - Loop continuously with seamless crossfade
+  - **Sparse** - Play once at full volume, then wait before repeating (great for short sounds like bird calls or thunder claps)
+  - **Presence** - Fade in/out based on presence setting
+
+### Broadcast Audio Model
+Rewrote channel streaming to use a radio-station model. All speakers tuned to the same channel hear the exact same audio stream, joining mid-stream rather than starting their own independent playback.
+
+### Live Speaker Management
+Add or remove speakers from an active channel without stopping playback. Changes take effect immediately.
+
+### Short File Handling
+Audio files under 15 seconds (configurable per theme) automatically use sparse playback when presence is below 100%. This prevents short sounds from looping annoyingly—a horse whinny or door creak plays once, then waits 30-300 seconds before playing again based on the presence setting.
 
 ## Acknowledgements
 
