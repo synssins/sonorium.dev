@@ -406,3 +406,18 @@ class ChannelManager:
     def get_active_channels(self) -> list[Channel]:
         """Get channels that are currently playing."""
         return [c for c in self._channels.values() if c.state == ChannelState.PLAYING]
+
+    def list_channels(self) -> list[dict]:
+        """Get all channels as serialized dicts for API."""
+        return [c.to_dict() for c in self._channels.values()]
+
+    def get_active_count(self) -> int:
+        """Get number of currently playing channels."""
+        return len(self.get_active_channels())
+
+    def get_available_channel(self) -> Optional[Channel]:
+        """Get first available (idle) channel, or None if all busy."""
+        for channel in self._channels.values():
+            if channel.state == ChannelState.IDLE:
+                return channel
+        return None
