@@ -855,9 +855,10 @@
         .track-list {
             display: flex;
             flex-direction: row;
+            flex-wrap: wrap;
             gap: 0.5rem;
-            overflow-x: auto;
             padding-bottom: 0.5rem;
+            justify-content: flex-start;
         }
 
         .track-item {
@@ -1208,8 +1209,9 @@
         .modal {
             background: var(--bg-card);
             border-radius: 0.75rem;
-            width: 100%;
-            max-width: 600px;
+            width: auto;
+            min-width: 400px;
+            max-width: 90vw;
             max-height: 90vh;
             overflow: hidden;
             display: flex;

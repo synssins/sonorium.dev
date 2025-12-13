@@ -6,7 +6,7 @@ from fmtr.tools import av
 LOG_THRESHOLD = 500
 
 # Crossfade duration in seconds for loop transitions
-LOOP_CROSSFADE_DURATION = 3.0
+LOOP_CROSSFADE_DURATION = 1.5
 # Fade duration for tracks fading in/out of the mix
 TRACK_FADE_DURATION = 6.0
 # Sample rate
