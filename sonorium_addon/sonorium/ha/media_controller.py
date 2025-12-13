@@ -102,7 +102,7 @@ class HAMediaController:
             logger.info(f"  Started playback on {entity_id}")
         return success
     
-    @logger.instrument("Playing media on {count} speakers...")
+    @logger.instrument("Playing media on multiple speakers...")
     async def play_media_multi(
         self,
         entity_ids: list[str],
