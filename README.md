@@ -8,6 +8,18 @@
 
 Sonorium lets you create immersive ambient audio environments throughout your home. Stream richly layered soundscapes—from distant thunder and rainfall to forest ambiance and ocean waves—to any combination of media players in your Home Assistant setup.
 
+## Current Development (v1.1.5-dev)
+
+**Active Work:**
+- **Broadcast Audio Model** - Rewrote channel streaming to use a radio-station model. All speakers tuned to the same channel hear the exact same audio stream, joining at the current playback position rather than starting their own independent streams.
+- **Track Presence Control** - Tracks now have a "presence" setting (0-100%) that controls how often they appear in the mix, independent of volume. Low presence tracks fade in and out naturally rather than playing constantly.
+
+**Recent Changes:**
+- Reduced loop crossfade duration to 1.5 seconds for smoother single-track themes
+- Track mixer UI now adapts width to content
+- Added visible fill bars to presence sliders
+- Shared audio generator with broadcast buffer for synchronized multi-speaker playback
+
 ## Acknowledgements
 
 Sonorium is a fork of [Amniotic](https://github.com/fmtr/amniotic) by [fmtr](https://github.com/fmtr). The original Amniotic project laid the groundwork for this addon with its innovative approach to ambient soundscape mixing in Home Assistant. We're grateful for the time, effort, and creativity that went into building the foundation that Sonorium is built upon.
@@ -147,7 +159,7 @@ When you play a theme:
 1. All audio files in that theme folder are loaded
 2. Sonorium mixes all tracks together in real-time using sqrt(n) normalization
 3. The mix streams to your selected speakers
-4. Tracks loop with 3-second equal-power crossfades for seamless playback
+4. Tracks loop with 1.5-second equal-power crossfades for seamless playback
 
 ## Configuration
 
