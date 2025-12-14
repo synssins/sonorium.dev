@@ -45,6 +45,7 @@ class ApiSonorium(api.Base):
         self._channel_manager = None
         self._cycle_manager = None
         self._mqtt_manager = None
+        self._plugin_manager = None
         
         # Register startup event to initialize v2
         @self.app.on_event("startup")
@@ -181,7 +182,21 @@ class ApiSonorium(api.Base):
                 self._state_store,
                 self._ha_registry,
             )
-            
+
+            # Initialize plugin manager
+            try:
+                from sonorium.plugins.manager import PluginManager
+                audio_path = self.client.device.path_audio if self.client and self.client.device else None
+                self._plugin_manager = PluginManager(
+                    self._state_store,
+                    audio_path=audio_path,
+                )
+                await self._plugin_manager.initialize()
+                logger.info(f"  Plugin manager: {len(self._plugin_manager.plugins)} plugin(s) loaded")
+            except Exception as e:
+                logger.warning(f"  Failed to initialize plugin manager: {e}")
+                self._plugin_manager = None
+
             # Create and mount v2 API router
             api_router = create_api_router(
                 session_manager=self._session_manager,
@@ -190,6 +205,7 @@ class ApiSonorium(api.Base):
                 state_store=self._state_store,
                 channel_manager=self._channel_manager,
                 cycle_manager=self._cycle_manager,
+                plugin_manager=self._plugin_manager,
             )
             self.app.include_router(api_router)
             
