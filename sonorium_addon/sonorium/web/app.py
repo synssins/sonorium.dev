@@ -144,17 +144,37 @@ class SonoriumApp:
                     return FileResponse(icon_path, media_type="image/png")
             return FileResponse(status_code=404)
 
+        # Debug endpoint to check static files
+        @self.app.get("/debug/static")
+        async def debug_static():
+            """Debug endpoint to check static file paths."""
+            result = {
+                "STATIC_DIR": str(STATIC_DIR),
+                "exists": STATIC_DIR.exists(),
+                "is_dir": STATIC_DIR.is_dir() if STATIC_DIR.exists() else False,
+                "contents": [],
+                "candidates_checked": [str(p) for p in _static_candidates],
+            }
+            if STATIC_DIR.exists():
+                try:
+                    result["contents"] = [str(p.relative_to(STATIC_DIR)) for p in STATIC_DIR.rglob("*") if p.is_file()]
+                except Exception as e:
+                    result["error"] = str(e)
+            return result
+
         # Mount static files (CSS, JS)
+        logger.info(f"About to mount static files. STATIC_DIR={STATIC_DIR}, exists={STATIC_DIR.exists()}")
         if STATIC_DIR.exists():
             # List contents for debugging
             try:
                 contents = list(STATIC_DIR.rglob("*"))
-                logger.info(f"Static dir contents: {[str(p.relative_to(STATIC_DIR)) for p in contents if p.is_file()]}")
+                file_list = [str(p.relative_to(STATIC_DIR)) for p in contents if p.is_file()]
+                logger.info(f"Static dir contains {len(file_list)} files: {file_list}")
             except Exception as e:
                 logger.warning(f"Could not list static dir: {e}")
 
             self.app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
-            logger.info(f"Mounted static files from: {STATIC_DIR}")
+            logger.info(f"Successfully mounted static files from: {STATIC_DIR}")
         else:
             logger.error(f"Static directory not found: {STATIC_DIR}")
             logger.error(f"Checked candidates: {_static_candidates}")
