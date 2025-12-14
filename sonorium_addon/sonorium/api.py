@@ -3,6 +3,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse, HTMLResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from sonorium.theme import ThemeDefinition
 from sonorium.version import __version__
@@ -17,6 +18,9 @@ for name in ["uvicorn.access", "uvicorn.error", "uvicorn"]:
 
 # Template directory
 TEMPLATES_DIR = Path(__file__).parent / "web" / "templates"
+
+# Static files directory (CSS, JS)
+STATIC_DIR = Path(__file__).parent / "web" / "static"
 
 # Static assets (relative to package root)
 PACKAGE_ROOT = Path(__file__).parent.parent
@@ -53,6 +57,13 @@ class ApiSonorium(api.Base):
         async def shutdown_event():
             logger.info("FastAPI shutdown event triggered")
             await self.shutdown_v2()
+
+        # Mount static files (CSS, JS) for the web UI
+        if STATIC_DIR.exists():
+            self.app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+            logger.info(f"Mounted static files from: {STATIC_DIR}")
+        else:
+            logger.warning(f"Static directory not found: {STATIC_DIR}")
 
     def get_endpoints(self):
         # IMPORTANT: More specific routes must come BEFORE catch-all routes!
