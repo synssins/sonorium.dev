@@ -2,7 +2,7 @@
 
 This document outlines the planned features and development direction for Sonorium. Features are organized by priority and complexity.
 
-## Current State (v1.1.17-dev)
+## Current State (v1.1.28-dev)
 
 Sonorium is a fully functional multi-zone ambient soundscape mixer for Home Assistant with:
 
@@ -15,14 +15,34 @@ Sonorium is a fully functional multi-zone ambient soundscape mixer for Home Assi
 - **Broadcast audio model** - All speakers on a channel hear the same stream
 - **Track mixer with advanced controls** - Per-track volume, presence, and playback mode settings
 - **Playback modes** - Auto, Continuous, Sparse, and Presence modes for fine-tuned control
+- **Plugin system** - Extensible architecture with built-in Ambient Mixer importer
+- **Local browser preview** - Preview tracks and full themes directly in the browser
 
 ---
 
 ## Recently Completed
 
+### Plugin System (v1.1.28-dev)
+- Extensible plugin architecture with hot-loading
+- Built-in Ambient Mixer plugin for importing soundscapes from ambient-mixer.com
+- Plugin enable/disable controls in Settings
+- Plugin upload and management UI
+
+### Local Browser Preview (v1.1.28-dev)
+- Preview individual tracks in the track mixer
+- Preview full theme mix directly in browser
+- Volume control and play/pause for theme preview
+- No speaker required - plays on the device viewing the UI
+
+### Live Speaker Management (v1.1.28-dev)
+- Add speakers to a playing channel - instantly syncs to current position
+- Remove speakers from a playing channel - remaining speakers continue uninterrupted
+- All speakers hear identical audio (broadcast model)
+
 ### Track Mixer with Advanced Controls (v1.1.17-dev)
 - Per-track volume control independent of presence
 - Per-track playback mode selection (Auto, Continuous, Sparse, Presence)
+- Seamless loop option (disable crossfade) per track
 - Advanced settings panel with gear toggle
 - Configurable short file threshold per theme
 
@@ -35,23 +55,6 @@ Per-track "presence" setting (0-100%) that controls how often a track appears in
 ---
 
 ## Near-Term Goals
-
-### Plugin System
-
-**Goal:** Extensible architecture allowing third-party plugins to add functionality.
-
-**Features:**
-- Plugin discovery and loading mechanism
-- Plugin settings page in the UI
-- API hooks for plugins to integrate with core functionality
-- Sandboxed execution environment for security
-- Plugin enable/disable controls
-
-**Use Cases:**
-- Custom audio source integrations
-- Specialized theme management tools
-- Third-party service integrations
-- Community-contributed functionality extensions
 
 ### Collapsible Navigation Menu
 
@@ -89,22 +92,6 @@ Per-track "presence" setting (0-100%) that controls how often a track appears in
 - See full track names without truncation
 - Quickly compare settings across tracks
 - More intuitive control layout
-
-### Per-Track Crossfade Control
-
-**Goal:** Allow disabling crossfade on individual tracks for seamless loops.
-
-**Features:**
-- Per-track "Seamless Loop" checkbox in advanced settings
-- When enabled, track loops without crossfade blending
-- Works with both Sparse and Continuous playback modes
-- Ideal for professionally edited loop files
-- State persisted with other track settings
-
-**Use Cases:**
-- Tracks that are already perfectly looped at edit points
-- Avoiding crossfade artifacts on certain audio files
-- Mixing seamless and crossfaded tracks in the same theme
 
 ### Home Assistant Entity Integration
 
@@ -148,23 +135,18 @@ Per-track "presence" setting (0-100%) that controls how often a track appears in
 - Different ambient sounds throughout the day
 - Randomized nature sounds for meditation
 
-### Live Speaker Management
+### Auto-Refresh After Plugin Import
 
-**Goal:** Modify speakers on an active channel without disrupting playback.
-
-**Status:** Partially implemented via Broadcast Audio Model (v1.1.5-dev). New speakers join at current playback position.
+**Goal:** Automatically refresh the theme list when a plugin imports new content.
 
 **Features:**
-- ✅ Add speakers to a playing channel—new speakers immediately pick up the stream
-- ✅ All speakers hear identical audio (broadcast model)
-- Remove speakers from a playing channel—remaining speakers continue uninterrupted
-- Real-time speaker status showing which speakers are actively receiving the stream
-- Graceful handling of speaker disconnections
+- Plugin API hook to trigger theme refresh
+- UI updates immediately after import completes
+- Toast notification of new themes added
 
 **Use Cases:**
-- Extend ambient sound to another room without restarting
-- Remove a speaker when someone enters that room
-- Dynamically adjust coverage based on presence detection
+- Seamless workflow when importing from Ambient Mixer
+- No manual refresh needed after plugin operations
 
 ---
 
@@ -187,25 +169,6 @@ Per-track "presence" setting (0-100%) that controls how often a track appears in
 - Dedicated media servers
 - Integration with other home automation platforms
 - Development and testing environments
-
-### Per-Track Volume Control
-
-**Goal:** Fine-tune the mix by adjusting individual track volumes within a theme.
-
-**Status:** ✅ Completed in v1.1.17-dev
-
-**Features:**
-- ✅ Presence slider for each track (controls frequency in mix)
-- ✅ Enable/disable individual tracks
-- ✅ Volume slider for each track in a theme
-- ✅ Playback mode selection per track
-- ✅ Save custom mix settings per theme
-- ✅ Reset to default mix option
-
-**Use Cases:**
-- Reduce bird sounds while keeping rain prominent
-- Create custom variations of existing themes
-- Fine-tune problematic frequency ranges
 
 ### Schedule-Based Automation
 
