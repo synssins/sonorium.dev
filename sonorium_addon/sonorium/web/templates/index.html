@@ -3873,14 +3873,6 @@
             const volume = parseFloat(volumePercent) / 100;
             try {
                 await api('PUT', `/themes/${currentTrackMixerThemeId}/tracks/${encodeURIComponent(trackName)}/volume`, { volume });
-                // Update toggle button state
-                const trackItem = document.querySelector(`.track-item[data-track="${trackName}"]`);
-                if (trackItem) {
-                    const btn = trackItem.querySelector('.track-advanced-toggle');
-                    const modeSelect = trackItem.querySelector('.track-mode-select');
-                    const hasAdvanced = volume !== 1.0 || (modeSelect && modeSelect.value !== 'auto');
-                    btn.classList.toggle('active', hasAdvanced);
-                }
             } catch (error) {
                 console.error('Failed to set track volume:', error);
                 showToast('Failed to set track volume', 'error');
