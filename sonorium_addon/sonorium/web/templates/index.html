@@ -1066,53 +1066,11 @@
 
         .track-slider {
             width: 100%;
-            height: 6px;
-            -webkit-appearance: none;
-            appearance: none;
-            background: var(--bg-tertiary);
-            border-radius: 3px;
+            height: 20px;
             cursor: pointer;
             margin: 0;
             padding: 0;
-        }
-
-        .track-slider::-webkit-slider-runnable-track {
-            height: 6px;
-            background: linear-gradient(to right, var(--accent-primary) var(--slider-percent, 0%), var(--bg-tertiary) var(--slider-percent, 0%));
-            border-radius: 3px;
-        }
-
-        .track-slider::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            width: 16px;
-            height: 16px;
-            background: #fff;
-            border-radius: 50%;
-            cursor: pointer;
-            box-shadow: 0 1px 4px rgba(0,0,0,0.5);
-            margin-top: -5px;
-        }
-
-        .track-slider::-moz-range-track {
-            height: 6px;
-            background: var(--bg-tertiary);
-            border-radius: 3px;
-        }
-
-        .track-slider::-moz-range-progress {
-            height: 6px;
-            background: var(--accent-primary);
-            border-radius: 3px 0 0 3px;
-        }
-
-        .track-slider::-moz-range-thumb {
-            width: 16px;
-            height: 16px;
-            background: #fff;
-            border-radius: 50%;
-            cursor: pointer;
-            border: none;
-            box-shadow: 0 1px 4px rgba(0,0,0,0.5);
+            accent-color: var(--accent-primary);
         }
 
         .track-slider-value {
@@ -3820,7 +3778,6 @@
                                 <div class="track-slider-wrapper">
                                     <input type="range" class="track-slider track-volume-slider"
                                            min="0" max="100" value="${volumePercent}"
-                                           style="--slider-percent: ${volumePercent}%"
                                            onchange="setTrackVolume('${escapeHtml(track.name)}', this.value)"
                                            oninput="updateSliderDisplay(this)">
                                 </div>
@@ -3831,7 +3788,6 @@
                                 <div class="track-slider-wrapper">
                                     <input type="range" class="track-slider track-presence-slider"
                                            min="0" max="100" value="${presencePercent}"
-                                           style="--slider-percent: ${presencePercent}%"
                                            onchange="setTrackPresence('${escapeHtml(track.name)}', this.value)"
                                            oninput="updateSliderDisplay(this)">
                                 </div>
@@ -3857,7 +3813,6 @@
             const row = slider.closest('.track-slider-row');
             const valueSpan = row.querySelector('.track-slider-value');
             valueSpan.textContent = slider.value + '%';
-            slider.style.setProperty('--slider-percent', slider.value + '%');
         }
 
         // Legacy function for backwards compatibility
