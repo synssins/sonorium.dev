@@ -18,6 +18,8 @@ let selectedSpeakers = {
 let currentView = 'sessions';
 
 async function init() {
+    console.log('Sonorium init() starting...');
+    console.log('BASE_PATH:', BASE_PATH);
     try {
         await Promise.all([
             loadSessions(),
@@ -31,8 +33,10 @@ async function init() {
             loadVersion(),
             loadPlugins()
         ]);
+        console.log('Data loaded, rendering...');
         renderSessions();
         updatePlayingBadge();
+        console.log('Sonorium init() complete');
     } catch (error) {
         console.error('Init error:', error);
         showToast('Failed to load data', 'error');

@@ -609,17 +609,24 @@
         (function() {
             var base = window.SONORIUM_BASE || '';
 
-            // Load scripts in order
+            // Load scripts in order with error handling
             function loadScript(src, callback) {
                 var script = document.createElement('script');
                 script.src = base + src;
-                script.onload = callback;
+                script.onload = function() {
+                    console.log('Loaded: ' + src);
+                    if (callback) callback();
+                };
+                script.onerror = function() {
+                    console.error('Failed to load: ' + base + src);
+                };
                 document.body.appendChild(script);
             }
 
+            console.log('Sonorium loading scripts with base:', base);
             loadScript('/static/js/api.js', function() {
                 loadScript('/static/js/app.js', function() {
-                    // Scripts loaded
+                    console.log('All scripts loaded');
                 });
             });
         })();
