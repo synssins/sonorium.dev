@@ -120,6 +120,10 @@ class SonoriumSettings:
     # Format: {"theme_id": {"track_name": "sparse"}} - auto/continuous/sparse/presence
     track_playback_mode: dict[str, dict[str, str]] = field(default_factory=dict)
 
+    # Per-track seamless loop settings (disable crossfade)
+    # Format: {"theme_id": {"track_name": true}} - only stores tracks with seamless enabled
+    track_seamless_loop: dict[str, dict[str, bool]] = field(default_factory=dict)
+
     def to_dict(self) -> dict:
         return asdict(self)
     
@@ -353,15 +357,23 @@ class StateStore:
             logger.info("  No existing state file, using defaults")
             self.state = SonoriumState()
             return self.state
-        
+
         try:
             data = json.loads(self.state_file.read_text())
             self.state = SonoriumState.from_dict(data)
+
+            # Reset all sessions to stopped state on startup
+            # (playback doesn't survive addon restarts)
+            for session in self.state.sessions.values():
+                if session.is_playing:
+                    session.is_playing = False
+                    logger.info(f"  Reset session '{session.name}' to stopped state")
+
             logger.info(f"  Loaded {len(self.state.sessions)} sessions, {len(self.state.speaker_groups)} groups")
         except Exception as e:
             logger.error(f"  Failed to load state: {e}")
             self.state = SonoriumState()
-        
+
         return self.state
     
     @logger.instrument("Saving state to {self.state_file}...")

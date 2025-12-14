@@ -123,6 +123,91 @@
             border-radius: 9999px;
         }
 
+        /* Collapsible nav sections */
+        .nav-section-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.625rem 1.25rem;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.15s;
+            border-left: 3px solid transparent;
+            font-size: 0.875rem;
+        }
+
+        .nav-section-header:hover {
+            background: var(--bg-card);
+            color: var(--text-primary);
+        }
+
+        .nav-section-header.active {
+            background: var(--bg-card);
+            color: var(--accent-primary);
+            border-left-color: var(--accent-primary);
+        }
+
+        .nav-section-header svg.nav-icon {
+            width: 18px;
+            height: 18px;
+            flex-shrink: 0;
+        }
+
+        .nav-section-left {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .nav-section-toggle {
+            width: 16px;
+            height: 16px;
+            transition: transform 0.2s ease;
+        }
+
+        .nav-section-header.expanded .nav-section-toggle {
+            transform: rotate(90deg);
+        }
+
+        .nav-sub-items {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.2s ease-out;
+            background: rgba(0, 0, 0, 0.15);
+        }
+
+        .nav-section.expanded .nav-sub-items {
+            max-height: 200px;
+        }
+
+        .nav-sub-item {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.5rem 1.25rem 0.5rem 2.75rem;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.15s;
+            border-left: 3px solid transparent;
+            font-size: 0.8rem;
+        }
+
+        .nav-sub-item:hover {
+            background: var(--bg-card);
+            color: var(--text-primary);
+        }
+
+        .nav-sub-item.active {
+            color: var(--accent-primary);
+            border-left-color: var(--accent-primary);
+        }
+
+        .nav-sub-item svg {
+            width: 14px;
+            height: 14px;
+            flex-shrink: 0;
+        }
+
         .sidebar-footer {
             padding: 1rem 1.25rem;
             border-top: 1px solid var(--border-color);
@@ -854,33 +939,180 @@
 
         .track-list {
             display: flex;
-            flex-direction: row;
-            flex-wrap: wrap;
+            flex-direction: column;
             gap: 0.5rem;
             padding-bottom: 0.5rem;
-            justify-content: flex-start;
+            max-width: 500px;
         }
 
         .track-item {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 0.5rem;
-            padding: 0.75rem 0.5rem;
+            display: grid;
+            grid-template-columns: minmax(100px, 150px) 80px 1fr 36px;
+            grid-template-rows: auto auto;
+            gap: 0.5rem 0.75rem;
+            padding: 0.75rem;
             background: var(--bg-secondary);
             border-radius: 0.5rem;
             border: 1px solid var(--border-color);
-            min-width: 60px;
-            max-width: 80px;
-            overflow: hidden;
+            align-items: center;
         }
 
         .track-item.muted {
             opacity: 0.5;
         }
 
-        .track-item.muted .track-presence-slider {
-            opacity: 0.3;
+        .track-name-cell {
+            grid-column: 1;
+            grid-row: 1 / 3;
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+
+        .track-name {
+            font-size: 0.8rem;
+            color: var(--text-primary);
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            line-height: 1.3;
+        }
+
+        .track-mode-cell {
+            grid-column: 2;
+            grid-row: 1 / 3;
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+
+        .track-mode-select {
+            width: 100%;
+            font-size: 0.7rem;
+            padding: 0.25rem;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            color: var(--text-primary);
+            cursor: pointer;
+        }
+
+        .track-seamless-label {
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+            font-size: 0.65rem;
+            color: var(--text-muted);
+            cursor: pointer;
+        }
+
+        .track-seamless-label input {
+            width: 12px;
+            height: 12px;
+            cursor: pointer;
+        }
+
+        .track-sliders-cell {
+            grid-column: 3;
+            grid-row: 1 / 3;
+            display: flex;
+            flex-direction: column;
+            gap: 0.35rem;
+        }
+
+        .track-slider-row {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .track-slider-label {
+            font-size: 0.6rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            width: 32px;
+            flex-shrink: 0;
+        }
+
+        .track-slider-wrapper {
+            position: relative;
+            flex: 1;
+            height: 16px;
+            min-width: 0;
+        }
+
+        .track-slider-track {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            left: 0;
+            right: 0;
+            height: 6px;
+            background: var(--bg-tertiary);
+            border-radius: 3px;
+            border: 1px solid var(--border-color);
+            overflow: hidden;
+        }
+
+        .track-slider-fill {
+            position: absolute;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            background: var(--accent-primary);
+            border-radius: 2px 0 0 2px;
+            transition: width 0.05s ease-out;
+        }
+
+        .track-slider {
+            position: absolute;
+            top: 50%;
+            left: 0;
+            transform: translateY(-50%);
+            width: 100%;
+            height: 16px;
+            -webkit-appearance: none;
+            appearance: none;
+            background: transparent;
+            cursor: pointer;
+            z-index: 2;
+            margin: 0;
+            padding: 0;
+        }
+
+        .track-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 12px;
+            height: 12px;
+            background: var(--text-primary);
+            border-radius: 50%;
+            cursor: pointer;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.4);
+        }
+
+        .track-slider::-moz-range-thumb {
+            width: 12px;
+            height: 12px;
+            background: var(--text-primary);
+            border-radius: 50%;
+            cursor: pointer;
+            border: none;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.4);
+        }
+
+        .track-slider-value {
+            font-size: 0.65rem;
+            color: var(--text-muted);
+            min-width: 28px;
+            text-align: right;
+            flex-shrink: 0;
+        }
+
+        .track-mute-cell {
+            grid-column: 4;
+            grid-row: 1 / 3;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
 
         .track-mute-btn {
@@ -908,111 +1140,6 @@
             color: #000;
         }
 
-        .track-name {
-            font-size: 0.7rem;
-            color: var(--text-primary);
-            text-align: center;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-            width: 100%;
-            order: 3;
-        }
-
-        .track-presence-control {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 0.25rem;
-            height: 140px;
-        }
-
-        .track-slider-wrapper {
-            position: relative;
-            width: 24px;
-            height: 100px;
-        }
-
-        .track-slider-track {
-            position: absolute;
-            left: 50%;
-            transform: translateX(-50%);
-            width: 8px;
-            height: 100%;
-            background: var(--bg-tertiary);
-            border-radius: 4px;
-            border: 1px solid var(--border-color);
-            overflow: hidden;
-        }
-
-        .track-slider-fill {
-            position: absolute;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            background: var(--accent-primary);
-            border-radius: 0 0 3px 3px;
-            transition: height 0.05s ease-out;
-        }
-
-        .track-presence-slider {
-            position: absolute;
-            top: 0;
-            left: 0;
-            writing-mode: vertical-lr;
-            direction: rtl;
-            width: 24px;
-            height: 100px;
-            -webkit-appearance: none;
-            appearance: none;
-            background: transparent;
-            cursor: pointer;
-            z-index: 2;
-        }
-
-        .track-presence-slider::-webkit-slider-runnable-track {
-            width: 100%;
-            height: 100%;
-            background: transparent;
-        }
-
-        .track-presence-slider::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            width: 22px;
-            height: 10px;
-            background: var(--text-primary);
-            border-radius: 3px;
-            cursor: grab;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.4);
-        }
-
-        .track-presence-slider::-webkit-slider-thumb:active {
-            cursor: grabbing;
-        }
-
-        .track-presence-slider::-moz-range-track {
-            width: 100%;
-            height: 100%;
-            background: transparent;
-        }
-
-        .track-presence-slider::-moz-range-thumb {
-            width: 22px;
-            height: 10px;
-            background: var(--text-primary);
-            border-radius: 3px;
-            cursor: grab;
-            border: none;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.4);
-        }
-
-        .track-presence-value {
-            font-size: 0.65rem;
-            color: var(--text-muted);
-            text-align: center;
-            min-width: 32px;
-        }
-
         .track-mixer-empty {
             color: var(--text-muted);
             font-size: 0.85rem;
@@ -1020,138 +1147,25 @@
             text-align: center;
         }
 
-        /* Track Advanced Settings */
-        .track-advanced-toggle {
-            font-size: 0.6rem;
-            padding: 0.15rem 0.3rem;
-            background: var(--bg-tertiary);
-            border: 1px solid var(--border-color);
-            border-radius: 3px;
-            cursor: pointer;
-            color: var(--text-muted);
-            margin-top: 0.25rem;
-        }
-
-        .track-advanced-toggle:hover {
-            background: var(--bg-hover);
-            color: var(--text-primary);
-        }
-
-        .track-advanced-toggle.active {
-            background: var(--accent-primary);
-            color: #fff;
-            border-color: var(--accent-primary);
-        }
-
-        .track-advanced-panel {
-            display: none;
-            width: 100%;
-            margin-top: 0.5rem;
-            padding-top: 0.5rem;
-            border-top: 1px solid var(--border-color);
-            flex-direction: column;
-            gap: 0.5rem;
-        }
-
-        .track-advanced-panel.expanded {
-            display: flex;
-        }
-
-        .track-advanced-row {
-            display: flex;
-            flex-direction: column;
-            gap: 0.2rem;
-            width: 100%;
-        }
-
-        .track-advanced-label {
-            font-size: 0.55rem;
-            color: var(--text-muted);
-            text-transform: uppercase;
-        }
-
-        .track-volume-control {
-            display: flex;
-            align-items: center;
-            gap: 0.25rem;
-            width: 100%;
-        }
-
-        .track-volume-wrapper {
-            position: relative;
-            flex: 1;
-            height: 12px;
-            min-width: 0;
-        }
-
-        .track-volume-track {
-            position: absolute;
-            top: 50%;
-            transform: translateY(-50%);
-            left: 0;
-            right: 0;
-            height: 6px;
-            background: var(--bg-tertiary);
-            border-radius: 3px;
-            border: 1px solid var(--border-color);
-            overflow: hidden;
-        }
-
-        .track-volume-fill {
-            position: absolute;
-            top: 0;
-            left: 0;
-            bottom: 0;
-            background: var(--accent-primary);
-            border-radius: 2px 0 0 2px;
-            transition: width 0.05s ease-out;
-        }
-
-        .track-volume-slider {
-            position: absolute;
-            top: 50%;
-            left: 0;
-            transform: translateY(-50%);
-            width: 100%;
-            height: 12px;
-            -webkit-appearance: none;
-            appearance: none;
-            background: transparent;
-            cursor: pointer;
-            z-index: 2;
-            margin: 0;
-            padding: 0;
-        }
-
-        .track-volume-slider::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            width: 10px;
-            height: 10px;
-            background: var(--text-primary);
-            border-radius: 50%;
-            cursor: pointer;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.4);
-        }
-
-        .track-volume-slider::-moz-range-thumb {
-            width: 10px;
-            height: 10px;
-            background: var(--text-primary);
-            border-radius: 50%;
-            cursor: pointer;
-            border: none;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.4);
-        }
-
+        /* Legacy vertical track styles removed - using horizontal layout now */
+        .track-presence-control,
+        .track-presence-slider,
+        .track-presence-value,
+        .track-advanced-toggle,
+        .track-advanced-panel,
+        .track-advanced-row,
+        .track-advanced-label,
+        .track-volume-control,
+        .track-volume-wrapper,
+        .track-volume-track,
+        .track-volume-fill,
+        .track-volume-slider,
         .track-volume-value {
-            font-size: 0.5rem;
-            color: var(--text-muted);
-            min-width: 20px;
-            text-align: right;
-            flex-shrink: 0;
+            /* Deprecated - kept for backwards compatibility */
+            display: none;
         }
 
-        .track-mode-select {
+        .track-mode-select-legacy {
             width: 100%;
             font-size: 0.6rem;
             padding: 0.2rem;
@@ -2047,12 +2061,54 @@
                     </svg>
                     <span>Themes</span>
                 </div>
-                <div class="nav-item" onclick="showView('settings')">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <circle cx="12" cy="12" r="3"/>
-                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+            </div>
+
+            <div class="nav-section" id="settings-nav-section">
+                <div class="nav-section-header" onclick="toggleNavSection('settings-nav-section')">
+                    <div class="nav-section-left">
+                        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="3"/>
+                            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                        </svg>
+                        <span>Settings</span>
+                    </div>
+                    <svg class="nav-section-toggle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="9 18 15 12 9 6"/>
                     </svg>
-                    <span>Settings</span>
+                </div>
+                <div class="nav-sub-items">
+                    <div class="nav-sub-item" onclick="showView('settings-audio')">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M3 18v-6a9 9 0 0 1 18 0v6"/>
+                            <path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/>
+                        </svg>
+                        <span>Audio Settings</span>
+                    </div>
+                    <div class="nav-sub-item" onclick="showView('settings-speakers')">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="4" y="2" width="16" height="20" rx="2" ry="2"/>
+                            <circle cx="12" cy="14" r="4"/>
+                            <line x1="12" y1="6" x2="12" y2="6"/>
+                        </svg>
+                        <span>Speakers</span>
+                    </div>
+                    <div class="nav-sub-item" onclick="showView('settings-groups')">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                            <circle cx="9" cy="7" r="4"/>
+                            <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+                            <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                        </svg>
+                        <span>Speaker Groups</span>
+                    </div>
+                    <div class="nav-sub-item" onclick="showView('settings-plugins')">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+                            <path d="M2 17l10 5 10-5"/>
+                            <path d="M2 12l10 5 10-5"/>
+                        </svg>
+                        <span>Plugins</span>
+                    </div>
                 </div>
             </div>
 
@@ -2289,8 +2345,15 @@
             </div>
 
             <!-- Settings View -->
+            <!-- Settings View (legacy - redirects to audio settings) -->
             <div id="view-settings" class="view">
-                <!-- Audio Settings Section -->
+                <div class="settings-section">
+                    <p>Please select a settings category from the menu.</p>
+                </div>
+            </div>
+
+            <!-- Audio Settings View -->
+            <div id="view-settings-audio" class="view">
                 <div class="settings-section">
                     <h3>Audio Settings</h3>
                     <p>Configure playback and mixing parameters.</p>
@@ -2338,7 +2401,10 @@
                         <button class="btn btn-secondary btn-sm" onclick="resetAudioSettings()">Reset to Defaults</button>
                     </div>
                 </div>
+            </div>
 
+            <!-- Speakers Settings View -->
+            <div id="view-settings-speakers" class="view">
                 <div class="settings-section">
                     <h3>Available Speakers</h3>
                     <p>Select which speakers Sonorium can use. Disabled speakers won't appear when creating channels.</p>
@@ -2361,8 +2427,10 @@
                         </div>
                     </div>
                 </div>
+            </div>
 
-                <!-- Speaker Groups Section -->
+            <!-- Speaker Groups Settings View -->
+            <div id="view-settings-groups" class="view">
                 <div class="settings-section">
                     <h3>Speaker Groups</h3>
                     <p>Create reusable speaker configurations for quick channel setup.</p>
@@ -2377,6 +2445,25 @@
                     </div>
                     <div id="settings-groups-list" class="settings-groups-list">
                         <!-- Groups loaded dynamically -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Plugins Settings View -->
+            <div id="view-settings-plugins" class="view">
+                <div class="settings-section">
+                    <h3>Plugins</h3>
+                    <p>Extend Sonorium's functionality with plugins.</p>
+                    <div id="plugins-list" class="plugins-list">
+                        <div class="empty-state" style="padding: 2rem;">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 48px; height: 48px; margin-bottom: 1rem; opacity: 0.5;">
+                                <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+                                <path d="M2 17l10 5 10-5"/>
+                                <path d="M2 12l10 5 10-5"/>
+                            </svg>
+                            <h3>Coming Soon</h3>
+                            <p style="color: var(--text-muted);">The plugin system is under development. Check back in a future update!</p>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -2663,17 +2750,36 @@
         function showView(viewName) {
             currentView = viewName;
 
-            // Update nav items
+            // Update nav items - clear all active states
             document.querySelectorAll('.nav-item').forEach(item => {
                 item.classList.remove('active');
             });
-            event.currentTarget.classList.add('active');
+            document.querySelectorAll('.nav-sub-item').forEach(item => {
+                item.classList.remove('active');
+            });
+            document.querySelectorAll('.nav-section-header').forEach(header => {
+                header.classList.remove('active');
+            });
+
+            // Set active state on clicked item
+            if (event && event.currentTarget) {
+                event.currentTarget.classList.add('active');
+                // If it's a sub-item, also highlight the parent section header
+                const parentSection = event.currentTarget.closest('.nav-section');
+                if (parentSection) {
+                    const header = parentSection.querySelector('.nav-section-header');
+                    if (header) header.classList.add('active');
+                }
+            }
 
             // Show/hide views
             document.querySelectorAll('.view').forEach(view => {
                 view.classList.remove('active');
             });
-            document.getElementById(`view-${viewName}`).classList.add('active');
+            const viewEl = document.getElementById(`view-${viewName}`);
+            if (viewEl) {
+                viewEl.classList.add('active');
+            }
 
             // Update header
             const titles = {
@@ -2681,9 +2787,13 @@
                 speakers: 'Speakers',
                 themes: 'Themes',
                 settings: 'Settings',
+                'settings-audio': 'Audio Settings',
+                'settings-speakers': 'Speakers',
+                'settings-groups': 'Speaker Groups',
+                'settings-plugins': 'Plugins',
                 status: 'Status'
             };
-            document.getElementById('view-title').textContent = titles[viewName];
+            document.getElementById('view-title').textContent = titles[viewName] || viewName;
 
             // Update actions
             const actionsHtml = {
@@ -2708,6 +2818,19 @@
                 `,
                 themes: '',
                 settings: '',
+                'settings-audio': '',
+                'settings-speakers': `
+                    <button class="btn btn-secondary" onclick="refreshSpeakers()">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M23 4v6h-6"/>
+                            <path d="M1 20v-6h6"/>
+                            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+                        </svg>
+                        Refresh Speakers
+                    </button>
+                `,
+                'settings-groups': '',
+                'settings-plugins': '',
                 status: `
                     <button class="btn btn-secondary" onclick="refreshStatus()">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -2719,7 +2842,7 @@
                     </button>
                 `
             };
-            document.getElementById('view-actions').innerHTML = actionsHtml[viewName];
+            document.getElementById('view-actions').innerHTML = actionsHtml[viewName] || '';
 
             // Load view-specific data
             if (viewName === 'speakers') renderSpeakersList();
@@ -2728,7 +2851,18 @@
                 renderSettingsSpeakerTree();
                 renderSettingsGroupsList();
             }
+            if (viewName === 'settings-audio') renderAudioSettings();
+            if (viewName === 'settings-speakers') renderSettingsSpeakerTree();
+            if (viewName === 'settings-groups') renderSettingsGroupsList();
+            if (viewName === 'settings-plugins') renderPluginsSettings();
             if (viewName === 'status') renderStatus();
+        }
+
+        function toggleNavSection(sectionId) {
+            const section = document.getElementById(sectionId);
+            const header = section.querySelector('.nav-section-header');
+            section.classList.toggle('expanded');
+            header.classList.toggle('expanded');
         }
 
         function toggleSidebar() {
@@ -3644,56 +3778,60 @@
                     const presencePercent = Math.round(track.presence * 100);
                     const volumePercent = Math.round((track.volume || 1.0) * 100);
                     const playbackMode = track.playback_mode || 'auto';
-                    const hasAdvanced = volumePercent !== 100 || playbackMode !== 'auto';
+                    const seamlessLoop = track.seamless_loop || false;
                     return `
                     <div class="track-item ${track.muted ? 'muted' : ''}" data-track="${escapeHtml(track.name)}">
-                        <span class="track-presence-value">${presencePercent}%</span>
-                        <div class="track-presence-control">
-                            <div class="track-slider-wrapper">
-                                <div class="track-slider-track">
-                                    <div class="track-slider-fill" style="height: ${presencePercent}%"></div>
+                        <div class="track-name-cell">
+                            <span class="track-name">${escapeHtml(track.name)}</span>
+                        </div>
+                        <div class="track-mode-cell">
+                            <select class="track-mode-select"
+                                    onchange="setTrackPlaybackMode('${escapeHtml(track.name)}', this.value)">
+                                <option value="auto" ${playbackMode === 'auto' ? 'selected' : ''}>Auto</option>
+                                <option value="continuous" ${playbackMode === 'continuous' ? 'selected' : ''}>Continuous</option>
+                                <option value="sparse" ${playbackMode === 'sparse' ? 'selected' : ''}>Sparse</option>
+                                <option value="presence" ${playbackMode === 'presence' ? 'selected' : ''}>Presence</option>
+                            </select>
+                            <label class="track-seamless-label">
+                                <input type="checkbox" ${seamlessLoop ? 'checked' : ''}
+                                       onchange="setTrackSeamlessLoop('${escapeHtml(track.name)}', this.checked)">
+                                Seamless
+                            </label>
+                        </div>
+                        <div class="track-sliders-cell">
+                            <div class="track-slider-row">
+                                <span class="track-slider-label">Vol</span>
+                                <div class="track-slider-wrapper">
+                                    <div class="track-slider-track">
+                                        <div class="track-slider-fill track-volume-fill" style="width: ${volumePercent}%"></div>
+                                    </div>
+                                    <input type="range" class="track-slider track-volume-slider"
+                                           min="0" max="100" value="${volumePercent}"
+                                           onchange="setTrackVolume('${escapeHtml(track.name)}', this.value)"
+                                           oninput="updateSliderDisplay(this, 'volume')">
                                 </div>
-                                <input type="range" class="track-presence-slider"
-                                       min="0" max="100" value="${presencePercent}"
-                                       onchange="setTrackPresence('${escapeHtml(track.name)}', this.value)"
-                                       oninput="updateTrackPresenceDisplay(this)">
+                                <span class="track-slider-value track-volume-value">${volumePercent}%</span>
+                            </div>
+                            <div class="track-slider-row">
+                                <span class="track-slider-label">Pres</span>
+                                <div class="track-slider-wrapper">
+                                    <div class="track-slider-track">
+                                        <div class="track-slider-fill track-presence-fill" style="width: ${presencePercent}%"></div>
+                                    </div>
+                                    <input type="range" class="track-slider track-presence-slider"
+                                           min="0" max="100" value="${presencePercent}"
+                                           onchange="setTrackPresence('${escapeHtml(track.name)}', this.value)"
+                                           oninput="updateSliderDisplay(this, 'presence')">
+                                </div>
+                                <span class="track-slider-value track-presence-value">${presencePercent}%</span>
                             </div>
                         </div>
-                        <button class="track-mute-btn ${track.muted ? 'muted' : ''}"
-                                onclick="toggleTrackMute('${escapeHtml(track.name)}')"
-                                title="${track.muted ? 'Unmute' : 'Mute'}">
-                            ${track.muted ? '🔇' : '🔊'}
-                        </button>
-                        <span class="track-name" title="${escapeHtml(track.name)}">${escapeHtml(track.name)}</span>
-                        <button class="track-advanced-toggle ${hasAdvanced ? 'active' : ''}"
-                                onclick="toggleTrackAdvanced(this)"
-                                title="Advanced settings">⚙</button>
-                        <div class="track-advanced-panel">
-                            <div class="track-advanced-row">
-                                <span class="track-advanced-label">Volume</span>
-                                <div class="track-volume-control">
-                                    <div class="track-volume-wrapper">
-                                        <div class="track-volume-track">
-                                            <div class="track-volume-fill" style="width: ${volumePercent}%"></div>
-                                        </div>
-                                        <input type="range" class="track-volume-slider"
-                                               min="0" max="100" value="${volumePercent}"
-                                               onchange="setTrackVolume('${escapeHtml(track.name)}', this.value)"
-                                               oninput="updateTrackVolumeDisplay(this)">
-                                    </div>
-                                    <span class="track-volume-value">${volumePercent}%</span>
-                                </div>
-                            </div>
-                            <div class="track-advanced-row">
-                                <span class="track-advanced-label">Mode</span>
-                                <select class="track-mode-select"
-                                        onchange="setTrackPlaybackMode('${escapeHtml(track.name)}', this.value)">
-                                    <option value="auto" ${playbackMode === 'auto' ? 'selected' : ''}>Auto</option>
-                                    <option value="continuous" ${playbackMode === 'continuous' ? 'selected' : ''}>Continuous</option>
-                                    <option value="sparse" ${playbackMode === 'sparse' ? 'selected' : ''}>Sparse</option>
-                                    <option value="presence" ${playbackMode === 'presence' ? 'selected' : ''}>Presence</option>
-                                </select>
-                            </div>
+                        <div class="track-mute-cell">
+                            <button class="track-mute-btn ${track.muted ? 'muted' : ''}"
+                                    onclick="toggleTrackMute('${escapeHtml(track.name)}')"
+                                    title="${track.muted ? 'Unmute' : 'Mute'}">
+                                ${track.muted ? '🔇' : '🔊'}
+                            </button>
                         </div>
                     </div>`;
                 }).join('');
@@ -3703,13 +3841,17 @@
             }
         }
 
-        function updateTrackPresenceDisplay(slider) {
-            const trackItem = slider.closest('.track-item');
-            const valueSpan = trackItem.querySelector('.track-presence-value');
-            const fillDiv = trackItem.querySelector('.track-slider-fill');
+        function updateSliderDisplay(slider, type) {
+            const row = slider.closest('.track-slider-row');
+            const valueSpan = row.querySelector('.track-slider-value');
+            const fillDiv = row.querySelector('.track-slider-fill');
             valueSpan.textContent = slider.value + '%';
-            // Update the fill bar height
-            fillDiv.style.height = slider.value + '%';
+            fillDiv.style.width = slider.value + '%';
+        }
+
+        // Legacy function for backwards compatibility
+        function updateTrackPresenceDisplay(slider) {
+            updateSliderDisplay(slider, 'presence');
         }
 
         async function setTrackPresence(trackName, presencePercent) {
@@ -3773,13 +3915,7 @@
         }
 
         function updateTrackVolumeDisplay(slider) {
-            const control = slider.closest('.track-volume-control');
-            const valueSpan = control.querySelector('.track-volume-value');
-            const fillDiv = control.querySelector('.track-volume-fill');
-            valueSpan.textContent = slider.value + '%';
-            if (fillDiv) {
-                fillDiv.style.width = slider.value + '%';
-            }
+            updateSliderDisplay(slider, 'volume');
         }
 
         async function setTrackVolume(trackName, volumePercent) {
@@ -3807,17 +3943,20 @@
 
             try {
                 await api('PUT', `/themes/${currentTrackMixerThemeId}/tracks/${encodeURIComponent(trackName)}/playback_mode`, { playback_mode: mode });
-                // Update toggle button state
-                const trackItem = document.querySelector(`.track-item[data-track="${trackName}"]`);
-                if (trackItem) {
-                    const btn = trackItem.querySelector('.track-advanced-toggle');
-                    const volumeSlider = trackItem.querySelector('.track-volume-slider');
-                    const hasAdvanced = mode !== 'auto' || (volumeSlider && parseInt(volumeSlider.value) !== 100);
-                    btn.classList.toggle('active', hasAdvanced);
-                }
             } catch (error) {
                 console.error('Failed to set playback mode:', error);
                 showToast('Failed to set playback mode', 'error');
+            }
+        }
+
+        async function setTrackSeamlessLoop(trackName, seamless) {
+            if (!currentTrackMixerThemeId) return;
+
+            try {
+                await api('PUT', `/themes/${currentTrackMixerThemeId}/tracks/${encodeURIComponent(trackName)}/seamless_loop`, { seamless_loop: seamless });
+            } catch (error) {
+                console.error('Failed to set seamless loop:', error);
+                showToast('Failed to set seamless loop', 'error');
             }
         }
 
@@ -4144,6 +4283,15 @@
 
             document.getElementById('settings-master-gain').value = audioSettings.master_gain;
             updateMasterGainDisplay(audioSettings.master_gain);
+        }
+
+        // Render functions for settings sub-views
+        function renderAudioSettings() {
+            applyAudioSettingsToUI();
+        }
+
+        function renderPluginsSettings() {
+            // Placeholder - plugins list is static HTML for now
         }
 
         async function saveAudioSettings() {

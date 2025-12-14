@@ -81,6 +81,7 @@ class ApiSonorium(api.Base):
             api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name}/muted', method=self.set_track_muted),
             api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name}/volume', method=self.set_track_volume),
             api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name}/playback_mode', method=self.set_track_playback_mode),
+            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name}/seamless_loop', method=self.set_track_seamless_loop),
             api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/tracks/reset', method=self.reset_theme_tracks),
 
             # Category API
@@ -602,11 +603,13 @@ class ApiSonorium(api.Base):
                     saved_muted = {}
                     saved_volume = {}
                     saved_playback_mode = {}
+                    saved_seamless_loop = {}
                     if self._state_store:
                         saved_presence = self._state_store.settings.track_presence.get(theme.id, {})
                         saved_muted = self._state_store.settings.track_muted.get(theme.id, {})
                         saved_volume = self._state_store.settings.track_volume.get(theme.id, {})
                         saved_playback_mode = self._state_store.settings.track_playback_mode.get(theme.id, {})
+                        saved_seamless_loop = self._state_store.settings.track_seamless_loop.get(theme.id, {})
 
                     for inst in theme.instances:
                         # Apply saved presence or default to 1.0 (always playing)
@@ -621,6 +624,8 @@ class ApiSonorium(api.Base):
                             inst.playback_mode = PlaybackMode(mode_str)
                         except ValueError:
                             inst.playback_mode = PlaybackMode.AUTO
+                        # Apply saved seamless loop (default to False, i.e., crossfade enabled)
+                        inst.crossfade_enabled = not saved_seamless_loop.get(inst.name, False)
 
         logger.info(f'Theme refresh complete: {len(device.themes)} themes loaded')
 
@@ -662,6 +667,7 @@ class ApiSonorium(api.Base):
         track_muted = self._state_store.settings.track_muted.get(theme_id, {})
         track_volume = self._state_store.settings.track_volume.get(theme_id, {})
         track_playback_mode = self._state_store.settings.track_playback_mode.get(theme_id, {})
+        track_seamless_loop = self._state_store.settings.track_seamless_loop.get(theme_id, {})
 
         tracks = []
         for inst in theme.instances:
@@ -674,6 +680,7 @@ class ApiSonorium(api.Base):
                 "is_short_file": inst.meta.is_short_file(theme.short_file_threshold),
                 "volume": track_volume.get(inst.name, 1.0),
                 "playback_mode": track_playback_mode.get(inst.name, "auto"),
+                "seamless_loop": track_seamless_loop.get(inst.name, False),
             })
 
         # Sort tracks alphabetically by name
@@ -875,6 +882,51 @@ class ApiSonorium(api.Base):
 
         return {"status": "ok", "track": track_name, "playback_mode": mode_str}
 
+    async def set_track_seamless_loop(self, theme_id: str, track_name: str, request: Request):
+        """Set seamless loop (disable crossfade) for a specific track in a theme."""
+        theme = self.client.device.themes.id.get(theme_id)
+        if not theme:
+            return {"error": "Theme not found"}
+
+        if not self._state_store:
+            return {"error": "State not available"}
+
+        try:
+            body = await request.json()
+        except Exception:
+            return {"error": "Invalid JSON body"}
+
+        seamless = body.get("seamless_loop")
+        if seamless is None:
+            return {"error": "seamless_loop is required"}
+
+        # Find the track instance
+        track_inst = None
+        for inst in theme.instances:
+            if inst.name == track_name:
+                track_inst = inst
+                break
+
+        if not track_inst:
+            return {"error": "Track not found"}
+
+        # Update the live instance
+        track_inst.crossfade_enabled = not seamless
+
+        # Persist to settings
+        if theme_id not in self._state_store.settings.track_seamless_loop:
+            self._state_store.settings.track_seamless_loop[theme_id] = {}
+
+        if seamless:
+            self._state_store.settings.track_seamless_loop[theme_id][track_name] = True
+        else:
+            # Remove from dict if disabling seamless
+            self._state_store.settings.track_seamless_loop[theme_id].pop(track_name, None)
+
+        self._state_store.save()
+
+        return {"status": "ok", "track": track_name, "seamless_loop": seamless}
+
     async def reset_theme_tracks(self, theme_id: str):
         """Reset all track settings to defaults for a theme."""
         from sonorium.recording import PlaybackMode
@@ -892,6 +944,7 @@ class ApiSonorium(api.Base):
             inst.is_enabled = True
             inst.volume = 1.0
             inst.playback_mode = PlaybackMode.AUTO
+            inst.crossfade_enabled = True
 
         # Clear persisted settings
         if theme_id in self._state_store.settings.track_presence:
@@ -902,6 +955,8 @@ class ApiSonorium(api.Base):
             del self._state_store.settings.track_volume[theme_id]
         if theme_id in self._state_store.settings.track_playback_mode:
             del self._state_store.settings.track_playback_mode[theme_id]
+        if theme_id in self._state_store.settings.track_seamless_loop:
+            del self._state_store.settings.track_seamless_loop[theme_id]
         self._state_store.save()
 
         return {"status": "ok", "theme_id": theme_id}
