@@ -124,6 +124,13 @@ class SonoriumSettings:
     # Format: {"theme_id": {"track_name": true}} - only stores tracks with seamless enabled
     track_seamless_loop: dict[str, dict[str, bool]] = field(default_factory=dict)
 
+    # Plugin settings (keyed by plugin_id)
+    # Format: {"ambient_mixer": {"download_path": "/media/sonorium", "auto_create_metadata": true}}
+    plugin_settings: dict[str, dict] = field(default_factory=dict)
+
+    # Enabled plugins list (by plugin_id)
+    enabled_plugins: list[str] = field(default_factory=list)
+
     def to_dict(self) -> dict:
         return asdict(self)
     

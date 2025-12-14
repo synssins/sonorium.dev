@@ -222,6 +222,32 @@ class UpdateCustomAreaRequest(BaseModel):
     speakers: Optional[list[str]] = None
 
 
+# --- Plugin Models ---
+
+class PluginResponse(BaseModel):
+    """Plugin details response."""
+    id: str
+    name: str
+    version: str
+    description: str
+    author: str
+    enabled: bool
+    settings: dict
+    ui_schema: dict
+    settings_schema: dict
+
+
+class PluginActionRequest(BaseModel):
+    """Request to execute a plugin action."""
+    action: str
+    data: dict = Field(default_factory=dict)
+
+
+class PluginSettingsRequest(BaseModel):
+    """Request to update plugin settings."""
+    settings: dict
+
+
 class ChannelResponse(BaseModel):
     """Channel status response."""
     id: int
@@ -264,17 +290,18 @@ def _session_to_response(session, session_manager) -> SessionResponse:
 # --- API Router Factory ---
 
 def create_api_router(
-    session_manager, 
-    group_manager, 
-    ha_registry, 
-    state_store, 
+    session_manager,
+    group_manager,
+    ha_registry,
+    state_store,
     theme_manager=None,
     channel_manager=None,
     cycle_manager=None,
+    plugin_manager=None,
 ) -> APIRouter:
     """
     Create the API router with all endpoints.
-    
+
     Args:
         session_manager: SessionManager instance
         group_manager: GroupManager instance
@@ -283,7 +310,8 @@ def create_api_router(
         theme_manager: Optional theme manager for theme endpoints
         channel_manager: Optional ChannelManager for channel-based streaming
         cycle_manager: Optional CycleManager for theme cycling
-    
+        plugin_manager: Optional PluginManager for plugin endpoints
+
     Returns:
         Configured APIRouter
     """
@@ -1241,5 +1269,96 @@ def create_api_router(
         except Exception as e:
             logger.error(f"Failed to delete theme: {e}")
             raise HTTPException(status_code=500, detail=str(e))
+
+    # --- Plugin Endpoints ---
+
+    @router.get("/plugins", response_model=list[PluginResponse])
+    async def list_plugins():
+        """List all available plugins."""
+        if not plugin_manager:
+            return []
+        return plugin_manager.list_plugins()
+
+    @router.get("/plugins/{plugin_id}", response_model=PluginResponse)
+    async def get_plugin(plugin_id: str):
+        """Get details for a specific plugin."""
+        if not plugin_manager:
+            raise HTTPException(status_code=503, detail="Plugin system not available")
+
+        plugin = plugin_manager.get_plugin(plugin_id)
+        if not plugin:
+            raise HTTPException(status_code=404, detail=f"Plugin not found: {plugin_id}")
+
+        return plugin.to_dict()
+
+    @router.put("/plugins/{plugin_id}/enable")
+    async def enable_plugin(plugin_id: str):
+        """Enable a plugin."""
+        if not plugin_manager:
+            raise HTTPException(status_code=503, detail="Plugin system not available")
+
+        success = await plugin_manager.enable_plugin(plugin_id)
+        if not success:
+            raise HTTPException(status_code=400, detail=f"Failed to enable plugin: {plugin_id}")
+
+        return {"status": "ok", "plugin_id": plugin_id, "enabled": True}
+
+    @router.put("/plugins/{plugin_id}/disable")
+    async def disable_plugin(plugin_id: str):
+        """Disable a plugin."""
+        if not plugin_manager:
+            raise HTTPException(status_code=503, detail="Plugin system not available")
+
+        success = await plugin_manager.disable_plugin(plugin_id)
+        if not success:
+            raise HTTPException(status_code=400, detail=f"Failed to disable plugin: {plugin_id}")
+
+        return {"status": "ok", "plugin_id": plugin_id, "enabled": False}
+
+    @router.get("/plugins/{plugin_id}/settings")
+    async def get_plugin_settings(plugin_id: str):
+        """Get settings for a plugin."""
+        if not plugin_manager:
+            raise HTTPException(status_code=503, detail="Plugin system not available")
+
+        plugin = plugin_manager.get_plugin(plugin_id)
+        if not plugin:
+            raise HTTPException(status_code=404, detail=f"Plugin not found: {plugin_id}")
+
+        return {
+            "plugin_id": plugin_id,
+            "settings": plugin.settings,
+            "schema": plugin.get_settings_schema(),
+        }
+
+    @router.put("/plugins/{plugin_id}/settings")
+    async def update_plugin_settings(plugin_id: str, request: PluginSettingsRequest):
+        """Update settings for a plugin."""
+        if not plugin_manager:
+            raise HTTPException(status_code=503, detail="Plugin system not available")
+
+        success = plugin_manager.update_plugin_settings(plugin_id, request.settings)
+        if not success:
+            raise HTTPException(status_code=400, detail=f"Failed to update plugin settings: {plugin_id}")
+
+        return {"status": "ok", "plugin_id": plugin_id, "settings": request.settings}
+
+    @router.post("/plugins/{plugin_id}/action")
+    async def execute_plugin_action(plugin_id: str, request: PluginActionRequest):
+        """Execute an action on a plugin."""
+        if not plugin_manager:
+            raise HTTPException(status_code=503, detail="Plugin system not available")
+
+        result = await plugin_manager.call_action(plugin_id, request.action, request.data)
+        return result
+
+    @router.post("/plugins/reload")
+    async def reload_plugins():
+        """Reload all plugins."""
+        if not plugin_manager:
+            raise HTTPException(status_code=503, detail="Plugin system not available")
+
+        await plugin_manager.reload_plugins()
+        return {"status": "ok", "message": "Plugins reloaded", "count": len(plugin_manager.plugins)}
 
     return router

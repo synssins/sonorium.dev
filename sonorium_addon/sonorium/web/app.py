@@ -36,6 +36,9 @@ for name in ["uvicorn.access", "uvicorn.error", "uvicorn"]:
 # Template directory
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 
+# Static files directory (CSS, JS)
+STATIC_DIR = Path(__file__).parent / "static"
+
 # Static files (logo, etc.)
 # In Docker container, files are at /app; in development, use relative path
 ADDON_DIR = Path("/app") if Path("/app/logo.png").exists() else Path(__file__).parent.parent.parent
@@ -73,6 +76,7 @@ class SonoriumApp:
         self._media_controller = None
         self._session_manager = None
         self._group_manager = None
+        self._plugin_manager = None
         self._initialized = False
         
         # Setup routes
@@ -129,7 +133,14 @@ class SonoriumApp:
                 if icon_path.exists():
                     return FileResponse(icon_path, media_type="image/png")
             return FileResponse(status_code=404)
-        
+
+        # Mount static files (CSS, JS)
+        if STATIC_DIR.exists():
+            self.app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+            logger.info(f"Mounted static files from: {STATIC_DIR}")
+        else:
+            logger.warning(f"Static directory not found: {STATIC_DIR}")
+
         # --- Streaming (unchanged from v1) ---
         
         @self.app.get("/stream/{theme_id}")
@@ -406,16 +417,29 @@ class SonoriumApp:
                 self._state_store,
                 self._ha_registry,
             )
-            
+
+            # Initialize plugin manager
+            try:
+                from sonorium.plugins.manager import PluginManager
+                self._plugin_manager = PluginManager(self._state_store)
+                # Note: Plugin initialization is async, so we start it in background
+                import asyncio
+                asyncio.create_task(self._plugin_manager.initialize())
+                logger.info("Plugin manager created, initialization started")
+            except Exception as e:
+                logger.warning(f"Failed to initialize plugin manager: {e}")
+                self._plugin_manager = None
+
             # Create and mount v2 API router
             api_router = create_api_router(
                 session_manager=self._session_manager,
                 group_manager=self._group_manager,
                 ha_registry=self._ha_registry,
                 state_store=self._state_store,
+                plugin_manager=self._plugin_manager,
             )
             self.app.include_router(api_router)
-            
+
             self._initialized = True
             logger.info("Sonorium v2 components initialized")
             
@@ -697,6 +721,10 @@ class SonoriumApp:
     @property
     def ha_registry(self):
         return self._ha_registry
+
+    @property
+    def plugin_manager(self):
+        return self._plugin_manager
 
 
 def create_app(mqtt_client=None) -> FastAPI:
