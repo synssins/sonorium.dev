@@ -868,6 +868,13 @@ function renderThemeCard(theme) {
             : `<div class="theme-browser-description-empty">No description</div>`
         }
         <div class="theme-browser-actions">
+            ${hasAudio ? `
+            <button class="theme-browser-preview-btn" onclick="startThemePreview('${theme.id}', '${escapeHtml(theme.name).replace(/'/g, "\\\'")}')" title="Preview in browser">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M8 5v14l11-7z"/>
+                </svg>
+            </button>
+            ` : ''}
             <button class="theme-browser-edit-btn" onclick="openThemeEditModal('${theme.id}')" title="Edit theme">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
@@ -1137,6 +1144,18 @@ async function loadTrackMixer(themeId) {
             const seamlessLoop = track.seamless_loop || false;
             return `
             <div class="track-item ${track.muted ? 'muted' : ''}" data-track="${escapeHtml(track.name)}">
+                <div class="track-preview-cell">
+                    <button class="track-preview-btn"
+                            onclick="toggleTrackPreview('${escapeHtml(track.name)}')"
+                            title="Preview track">
+                        <svg class="play-icon" viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+                            <path d="M8 5v14l11-7z"/>
+                        </svg>
+                        <svg class="stop-icon" viewBox="0 0 24 24" fill="currentColor" width="16" height="16" style="display:none;">
+                            <rect x="6" y="6" width="12" height="12"/>
+                        </svg>
+                    </button>
+                </div>
                 <div class="track-name-cell">
                     <span class="track-name">${escapeHtml(track.name)}</span>
                 </div>
@@ -1299,6 +1318,207 @@ async function setTrackSeamlessLoop(trackName, seamless) {
         showToast('Failed to set seamless loop', 'error');
     }
 }
+
+// ============================================
+// Track Preview Playback
+// ============================================
+
+let trackPreviewAudio = null;
+let currentPreviewTrack = null;
+
+function toggleTrackPreview(trackName) {
+    if (!currentTrackMixerThemeId) return;
+
+    // If same track is playing, stop it
+    if (currentPreviewTrack === trackName && trackPreviewAudio && !trackPreviewAudio.paused) {
+        stopTrackPreview();
+        return;
+    }
+
+    // Stop any currently playing preview
+    stopTrackPreview();
+
+    // Start new preview
+    const audioUrl = `${BASE_PATH}/api/themes/${encodeURIComponent(currentTrackMixerThemeId)}/tracks/${encodeURIComponent(trackName)}/audio`;
+
+    trackPreviewAudio = new Audio(audioUrl);
+    trackPreviewAudio.volume = 0.8;
+    currentPreviewTrack = trackName;
+
+    // Update button state
+    updatePreviewButtonState(trackName, true);
+
+    trackPreviewAudio.play().catch(err => {
+        console.error('Failed to play track preview:', err);
+        showToast('Failed to play track', 'error');
+        stopTrackPreview();
+    });
+
+    // When playback ends, reset the button
+    trackPreviewAudio.onended = () => {
+        stopTrackPreview();
+    };
+
+    trackPreviewAudio.onerror = () => {
+        console.error('Audio playback error');
+        showToast('Failed to load audio', 'error');
+        stopTrackPreview();
+    };
+}
+
+function stopTrackPreview() {
+    if (trackPreviewAudio) {
+        trackPreviewAudio.pause();
+        trackPreviewAudio.src = '';
+        trackPreviewAudio = null;
+    }
+
+    if (currentPreviewTrack) {
+        updatePreviewButtonState(currentPreviewTrack, false);
+        currentPreviewTrack = null;
+    }
+}
+
+function updatePreviewButtonState(trackName, isPlaying) {
+    const trackItem = document.querySelector(`.track-item[data-track="${CSS.escape(trackName)}"]`);
+    if (!trackItem) return;
+
+    const btn = trackItem.querySelector('.track-preview-btn');
+    if (!btn) return;
+
+    const playIcon = btn.querySelector('.play-icon');
+    const stopIcon = btn.querySelector('.stop-icon');
+
+    if (isPlaying) {
+        btn.classList.add('playing');
+        if (playIcon) playIcon.style.display = 'none';
+        if (stopIcon) stopIcon.style.display = 'block';
+    } else {
+        btn.classList.remove('playing');
+        if (playIcon) playIcon.style.display = 'block';
+        if (stopIcon) stopIcon.style.display = 'none';
+    }
+}
+
+// Stop preview when leaving the track mixer or changing themes
+function cleanupTrackPreview() {
+    stopTrackPreview();
+}
+
+// ============================================
+// End Track Preview Playback
+// ============================================
+
+// ============================================
+// Theme Preview Playback (Full Theme Stream)
+// ============================================
+
+let themePreviewAudio = null;
+let currentPreviewThemeId = null;
+let themePreviewIsPlaying = false;
+
+function startThemePreview(themeId, themeName) {
+    // Stop any existing preview
+    stopThemePreview();
+
+    // Stop track preview if playing
+    stopTrackPreview();
+
+    currentPreviewThemeId = themeId;
+
+    // Get the stream URL for this theme
+    const streamUrl = `${BASE_PATH}/stream/${encodeURIComponent(themeId)}`;
+
+    themePreviewAudio = new Audio(streamUrl);
+    themePreviewAudio.volume = document.getElementById('preview-volume').value / 100;
+
+    // Show the player
+    const player = document.getElementById('theme-preview-player');
+    const nameEl = document.getElementById('preview-theme-name');
+    player.style.display = 'flex';
+    nameEl.textContent = themeName;
+
+    themePreviewAudio.play().then(() => {
+        themePreviewIsPlaying = true;
+        updateThemePreviewButton(true);
+    }).catch(err => {
+        console.error('Failed to play theme preview:', err);
+        showToast('Failed to play theme', 'error');
+        closeThemePreview();
+    });
+
+    themePreviewAudio.onerror = () => {
+        console.error('Theme audio playback error');
+        showToast('Failed to load theme stream', 'error');
+        closeThemePreview();
+    };
+}
+
+function toggleThemePreview() {
+    if (!themePreviewAudio) return;
+
+    if (themePreviewIsPlaying) {
+        themePreviewAudio.pause();
+        themePreviewIsPlaying = false;
+        updateThemePreviewButton(false);
+    } else {
+        themePreviewAudio.play().then(() => {
+            themePreviewIsPlaying = true;
+            updateThemePreviewButton(true);
+        }).catch(err => {
+            console.error('Failed to resume theme preview:', err);
+        });
+    }
+}
+
+function stopThemePreview() {
+    if (themePreviewAudio) {
+        themePreviewAudio.pause();
+        themePreviewAudio.src = '';
+        themePreviewAudio = null;
+    }
+    themePreviewIsPlaying = false;
+    currentPreviewThemeId = null;
+}
+
+function closeThemePreview() {
+    stopThemePreview();
+    const player = document.getElementById('theme-preview-player');
+    if (player) {
+        player.style.display = 'none';
+    }
+    updateThemePreviewButton(false);
+}
+
+function setThemePreviewVolume(value) {
+    if (themePreviewAudio) {
+        themePreviewAudio.volume = value / 100;
+    }
+    const volumeLabel = document.getElementById('preview-volume-value');
+    if (volumeLabel) {
+        volumeLabel.textContent = value + '%';
+    }
+}
+
+function updateThemePreviewButton(isPlaying) {
+    const btn = document.getElementById('preview-play-btn');
+    if (!btn) return;
+
+    const playIcon = btn.querySelector('.play-icon');
+    const pauseIcon = btn.querySelector('.pause-icon');
+
+    if (isPlaying) {
+        if (playIcon) playIcon.style.display = 'none';
+        if (pauseIcon) pauseIcon.style.display = 'block';
+    } else {
+        if (playIcon) playIcon.style.display = 'block';
+        if (pauseIcon) pauseIcon.style.display = 'none';
+    }
+}
+
+// ============================================
+// End Theme Preview Playback
+// ============================================
 
 async function addNewCategoryFromEdit() {
     const input = document.getElementById('theme-edit-new-category');

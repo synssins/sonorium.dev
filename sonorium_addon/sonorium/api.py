@@ -89,6 +89,7 @@ class ApiSonorium(api.Base):
 
             # Track Mixer API
             api.Endpoint(method_http=self.app.get, path='/api/themes/{theme_id}/tracks', method=self.get_theme_tracks),
+            api.Endpoint(method_http=self.app.get, path='/api/themes/{theme_id}/tracks/{track_name}/audio', method=self.get_track_audio),
             api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name}/presence', method=self.set_track_presence),
             api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name}/muted', method=self.set_track_muted),
             api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name}/volume', method=self.set_track_volume),
@@ -767,6 +768,51 @@ class ApiSonorium(api.Base):
             "short_file_threshold": theme.short_file_threshold,
             "tracks": tracks,
         }
+
+    async def get_track_audio(self, theme_id: str, track_name: str):
+        """Serve an individual track audio file for browser preview playback."""
+        from fastapi.responses import FileResponse
+        from urllib.parse import unquote
+
+        # URL decode the track name
+        track_name = unquote(track_name)
+
+        theme = self.client.device.themes.id.get(theme_id)
+        if not theme:
+            return {"error": "Theme not found"}
+
+        # Find the track instance
+        track_inst = None
+        for inst in theme.instances:
+            if inst.name == track_name:
+                track_inst = inst
+                break
+
+        if not track_inst:
+            return {"error": f"Track not found: {track_name}"}
+
+        # Get the file path
+        audio_path = track_inst.path
+        if not audio_path or not audio_path.exists():
+            return {"error": "Audio file not found"}
+
+        # Determine media type based on extension
+        suffix = audio_path.suffix.lower()
+        media_types = {
+            '.mp3': 'audio/mpeg',
+            '.wav': 'audio/wav',
+            '.ogg': 'audio/ogg',
+            '.flac': 'audio/flac',
+            '.m4a': 'audio/mp4',
+            '.aac': 'audio/aac',
+        }
+        media_type = media_types.get(suffix, 'audio/mpeg')
+
+        return FileResponse(
+            path=str(audio_path),
+            media_type=media_type,
+            filename=audio_path.name,
+        )
 
     async def set_track_presence(self, theme_id: str, track_name: str, request: Request):
         """Set presence (frequency) for a specific track in a theme.

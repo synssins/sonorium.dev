@@ -176,6 +176,33 @@
                         </button>
                     </div>
                 </div>
+
+                <!-- Local Theme Preview Player -->
+                <div id="theme-preview-player" class="theme-preview-player" style="display: none;">
+                    <div class="preview-player-info">
+                        <span class="preview-label">Local Preview:</span>
+                        <span id="preview-theme-name" class="preview-theme-name">--</span>
+                    </div>
+                    <div class="preview-player-controls">
+                        <button id="preview-play-btn" class="preview-control-btn" onclick="toggleThemePreview()">
+                            <svg class="play-icon" viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
+                                <path d="M8 5v14l11-7z"/>
+                            </svg>
+                            <svg class="pause-icon" viewBox="0 0 24 24" fill="currentColor" width="20" height="20" style="display:none;">
+                                <rect x="6" y="4" width="4" height="16"/>
+                                <rect x="14" y="4" width="4" height="16"/>
+                            </svg>
+                        </button>
+                        <input type="range" id="preview-volume" class="preview-volume-slider"
+                               min="0" max="100" value="80"
+                               oninput="setThemePreviewVolume(this.value)">
+                        <span id="preview-volume-value" class="preview-volume-value">80%</span>
+                        <button class="preview-close-btn" onclick="closeThemePreview()" title="Close preview">
+                            &times;
+                        </button>
+                    </div>
+                </div>
+
                 <div id="themes-browser" class="themes-browser-enhanced">
                     <div class="loading">
                         <div class="spinner"></div>
