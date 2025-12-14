@@ -2437,8 +2437,5 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
-// Fix logo path for ingress - use direct /logo.png route
-document.getElementById('sidebar-logo-img').src = `${BASE_PATH}/logo.png`;
-
 // Start
 init();

@@ -1,16 +1,12 @@
 /* Sonorium API Module */
 
-// API Helper - works with both direct access and HA ingress
-function getBasePath() {
-    // For ingress, the page URL includes the ingress path
-    // We need to use relative paths from wherever we're served
-    const path = window.location.pathname;
-    // Remove trailing slash and index.html if present
-    let base = path.replace(/\/?(index\.html)?$/, '');
-    return base || '';
-}
-
-const BASE_PATH = getBasePath();
+// Use base path already set by index.html, or calculate if not available
+const BASE_PATH = window.SONORIUM_BASE !== undefined
+    ? window.SONORIUM_BASE
+    : (function() {
+        const path = window.location.pathname;
+        return path.replace(/\/?(index\.html)?$/, '') || '';
+    })();
 
 async function api(method, endpoint, body = null) {
     const options = {

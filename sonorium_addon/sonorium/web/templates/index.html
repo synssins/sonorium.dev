@@ -4,14 +4,27 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sonorium</title>
-    <link rel="stylesheet" href="static/css/styles.css">
+    <script>
+        // Determine base path for ingress support and store globally
+        (function() {
+            var path = window.location.pathname;
+            window.SONORIUM_BASE = path.replace(/\/?(index\.html)?$/, '') || '';
+
+            // Dynamically load CSS with correct path
+            var link = document.createElement('link');
+            link.rel = 'stylesheet';
+            link.href = window.SONORIUM_BASE + '/static/css/styles.css';
+            document.head.appendChild(link);
+        })();
+    </script>
 </head>
 <body>
     <!-- Sidebar -->
     <aside class="sidebar" id="sidebar">
         <div class="sidebar-header">
             <div class="sidebar-logo">
-                <img id="sidebar-logo-img" src="logo.png" alt="Sonorium">
+                <img id="sidebar-logo-img" src="" alt="Sonorium">
+                <script>document.getElementById('sidebar-logo-img').src = (window.SONORIUM_BASE || '') + '/logo.png';</script>
             </div>
         </div>
 
@@ -591,8 +604,25 @@
     <!-- Toast Container -->
     <div id="toast-container" class="toast-container"></div>
 
-    <!-- JavaScript -->
-    <script src="static/js/api.js"></script>
-    <script src="static/js/app.js"></script>
+    <!-- JavaScript - dynamically loaded for ingress support -->
+    <script>
+        (function() {
+            var base = window.SONORIUM_BASE || '';
+
+            // Load scripts in order
+            function loadScript(src, callback) {
+                var script = document.createElement('script');
+                script.src = base + src;
+                script.onload = callback;
+                document.body.appendChild(script);
+            }
+
+            loadScript('/static/js/api.js', function() {
+                loadScript('/static/js/app.js', function() {
+                    // Scripts loaded
+                });
+            });
+        })();
+    </script>
 </body>
 </html>
