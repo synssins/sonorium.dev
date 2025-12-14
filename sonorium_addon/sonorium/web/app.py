@@ -37,11 +37,21 @@ for name in ["uvicorn.access", "uvicorn.error", "uvicorn"]:
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 
 # Static files directory (CSS, JS)
-STATIC_DIR = Path(__file__).parent / "static"
+# Try multiple possible locations
+_static_candidates = [
+    Path(__file__).parent / "static",  # Relative to app.py
+    Path("/app/sonorium/web/static"),  # Docker container path
+]
+STATIC_DIR = next((p for p in _static_candidates if p.exists()), _static_candidates[0])
 
 # Static files (logo, etc.)
 # In Docker container, files are at /app; in development, use relative path
 ADDON_DIR = Path("/app") if Path("/app/logo.png").exists() else Path(__file__).parent.parent.parent
+
+# Log paths at module load time
+logger.info(f"TEMPLATES_DIR: {TEMPLATES_DIR} (exists: {TEMPLATES_DIR.exists()})")
+logger.info(f"STATIC_DIR: {STATIC_DIR} (exists: {STATIC_DIR.exists()})")
+logger.info(f"ADDON_DIR: {ADDON_DIR} (exists: {ADDON_DIR.exists()})")
 
 
 class SonoriumApp:
@@ -136,10 +146,18 @@ class SonoriumApp:
 
         # Mount static files (CSS, JS)
         if STATIC_DIR.exists():
+            # List contents for debugging
+            try:
+                contents = list(STATIC_DIR.rglob("*"))
+                logger.info(f"Static dir contents: {[str(p.relative_to(STATIC_DIR)) for p in contents if p.is_file()]}")
+            except Exception as e:
+                logger.warning(f"Could not list static dir: {e}")
+
             self.app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
             logger.info(f"Mounted static files from: {STATIC_DIR}")
         else:
-            logger.warning(f"Static directory not found: {STATIC_DIR}")
+            logger.error(f"Static directory not found: {STATIC_DIR}")
+            logger.error(f"Checked candidates: {_static_candidates}")
 
         # --- Streaming (unchanged from v1) ---
         
