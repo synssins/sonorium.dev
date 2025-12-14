@@ -2,7 +2,7 @@
 
 This document outlines the planned features and development direction for Sonorium. Features are organized by priority and complexity.
 
-## Current State (v1.1.5-dev)
+## Current State (v1.1.17-dev)
 
 Sonorium is a fully functional multi-zone ambient soundscape mixer for Home Assistant with:
 
@@ -13,26 +13,98 @@ Sonorium is a fully functional multi-zone ambient soundscape mixer for Home Assi
 - Home Assistant sidebar integration via ingress
 - REST API for automation
 - **Broadcast audio model** - All speakers on a channel hear the same stream
-- **Track presence control** - Per-track frequency settings for dynamic mixes
+- **Track mixer with advanced controls** - Per-track volume, presence, and playback mode settings
+- **Playback modes** - Auto, Continuous, Sparse, and Presence modes for fine-tuned control
 
 ---
 
 ## Recently Completed
 
+### Track Mixer with Advanced Controls (v1.1.17-dev)
+- Per-track volume control independent of presence
+- Per-track playback mode selection (Auto, Continuous, Sparse, Presence)
+- Advanced settings panel with gear toggle
+- Configurable short file threshold per theme
+
 ### Broadcast Audio Model (v1.1.5-dev)
 Radio-station style streaming where all speakers tuned to the same channel hear identical audio. New speakers join at the current playback position rather than starting independent streams.
 
 ### Track Presence Control (v1.1.4-dev)
-Per-track "presence" setting (0-100%) that controls how often a track appears in the mix, independent of volume. Low presence tracks fade in and out naturally using equal-power crossfades.
-
-### UI Improvements (v1.1.4-dev)
-- Track mixer modal adapts width to content
-- Visible fill bars on presence sliders
-- Reduced loop crossfade to 1.5 seconds for smoother single-track themes
+Per-track "presence" setting (0-100%) that controls how often a track appears in the mix. Low presence tracks fade in and out naturally using equal-power crossfades.
 
 ---
 
 ## Near-Term Goals
+
+### Plugin System
+
+**Goal:** Extensible architecture allowing third-party plugins to add functionality.
+
+**Features:**
+- Plugin discovery and loading mechanism
+- Plugin settings page in the UI
+- API hooks for plugins to integrate with core functionality
+- Sandboxed execution environment for security
+- Plugin enable/disable controls
+
+**Use Cases:**
+- Custom audio source integrations
+- Specialized theme management tools
+- Third-party service integrations
+- Community-contributed functionality extensions
+
+### Collapsible Navigation Menu
+
+**Goal:** Reorganize the sidebar navigation with expandable/collapsible sections.
+
+**Features:**
+- Section-based navigation with expand/collapse toggles
+- Settings section with sub-pages:
+  - Audio Settings
+  - Speakers
+  - Speaker Groups
+  - Plugins
+- Persistent expand/collapse state
+- Clean, organized menu structure
+
+**Use Cases:**
+- Better organization as features grow
+- Quick access to frequently used sections
+- Reduced visual clutter in the sidebar
+
+### Advanced Track Settings UI Redesign
+
+**Goal:** Improve the track mixer interface for better usability and information density.
+
+**Features:**
+- Two-row layout per track: Volume slider above Presence slider
+- Labels positioned to the left of each slider
+- Track name with word wrap to prevent excessive width
+- Playback mode dropdown between track name and sliders
+- Grid-aligned UI elements for visual consistency
+- Seamless loop checkbox for perfectly looped tracks
+- Fixed-width panel that doesn't stretch to fill the page
+
+**Use Cases:**
+- See full track names without truncation
+- Quickly compare settings across tracks
+- More intuitive control layout
+
+### Per-Track Crossfade Control
+
+**Goal:** Allow disabling crossfade on individual tracks for seamless loops.
+
+**Features:**
+- Per-track "Seamless Loop" checkbox in advanced settings
+- When enabled, track loops without crossfade blending
+- Works with both Sparse and Continuous playback modes
+- Ideal for professionally edited loop files
+- State persisted with other track settings
+
+**Use Cases:**
+- Tracks that are already perfectly looped at edit points
+- Avoiding crossfade artifacts on certain audio files
+- Mixing seamless and crossfaded tracks in the same theme
 
 ### Home Assistant Entity Integration
 
@@ -120,14 +192,15 @@ Per-track "presence" setting (0-100%) that controls how often a track appears in
 
 **Goal:** Fine-tune the mix by adjusting individual track volumes within a theme.
 
-**Status:** Partially implemented via Track Presence Control (v1.1.4-dev). Presence controls track frequency in the mix. Full volume control per-track is planned.
+**Status:** ✅ Completed in v1.1.17-dev
 
 **Features:**
 - ✅ Presence slider for each track (controls frequency in mix)
 - ✅ Enable/disable individual tracks
-- Volume slider for each track in a theme
-- Save custom mix settings per theme
-- Reset to default mix option
+- ✅ Volume slider for each track in a theme
+- ✅ Playback mode selection per track
+- ✅ Save custom mix settings per theme
+- ✅ Reset to default mix option
 
 **Use Cases:**
 - Reduce bird sounds while keeping rain prominent
@@ -212,7 +285,8 @@ Per-track "presence" setting (0-100%) that controls how often a track appears in
 - Better handling of network interruptions
 
 ### Developer Experience
-- Plugin architecture for custom features
+- Plugin architecture for custom features (see Near-Term Goals)
+- Plugin development documentation and examples
 - Comprehensive API documentation
 - WebSocket support for real-time updates
 - SDK for building integrations
