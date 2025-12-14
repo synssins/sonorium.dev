@@ -120,7 +120,10 @@ class ApiSonorium(api.Base):
             self._state_store = StateStore()
             self._state_store.load()
             logger.info(f"  State loaded: {len(self._state_store.sessions)} sessions, {len(self._state_store.speaker_groups)} groups")
-            
+
+            # Apply saved track settings to themes
+            self._apply_saved_track_settings()
+
             # Initialize channel manager
             max_channels = getattr(settings, 'max_channels', 6)
             self._channel_manager = ChannelManager(max_channels=max_channels)
@@ -193,6 +196,51 @@ class ApiSonorium(api.Base):
             import traceback
             traceback.print_exc()
     
+    def _apply_saved_track_settings(self):
+        """Apply saved track settings (mute, volume, presence, etc.) to theme instances on startup."""
+        if not self._state_store:
+            return
+
+        from sonorium.recording import PlaybackMode
+
+        device = self.client.device
+        if not device.themes:
+            return
+
+        logger.info("  Applying saved track settings to themes...")
+        for theme in device.themes:
+            if not theme.instances:
+                continue
+
+            # Get saved settings for this theme
+            saved_presence = self._state_store.settings.track_presence.get(theme.id, {})
+            saved_muted = self._state_store.settings.track_muted.get(theme.id, {})
+            saved_volume = self._state_store.settings.track_volume.get(theme.id, {})
+            saved_playback_mode = self._state_store.settings.track_playback_mode.get(theme.id, {})
+            saved_seamless_loop = self._state_store.settings.track_seamless_loop.get(theme.id, {})
+
+            # Skip themes with no saved settings
+            if not any([saved_presence, saved_muted, saved_volume, saved_playback_mode, saved_seamless_loop]):
+                continue
+
+            for inst in theme.instances:
+                # Apply saved presence or default to 1.0 (always playing)
+                inst.presence = saved_presence.get(inst.name, 1.0)
+                # Apply saved muted state (default to enabled/not muted)
+                inst.is_enabled = not saved_muted.get(inst.name, False)
+                # Apply saved volume (default to 1.0)
+                inst.volume = saved_volume.get(inst.name, 1.0)
+                # Apply saved playback mode (default to auto)
+                mode_str = saved_playback_mode.get(inst.name, "auto")
+                try:
+                    inst.playback_mode = PlaybackMode(mode_str)
+                except ValueError:
+                    inst.playback_mode = PlaybackMode.AUTO
+                # Apply saved seamless loop (default to False, i.e., crossfade enabled)
+                inst.crossfade_enabled = not saved_seamless_loop.get(inst.name, False)
+
+            logger.info(f"    Applied settings to theme '{theme.name}'")
+
     async def shutdown_v2(self):
         """Shutdown v2 components gracefully."""
         if self._cycle_manager:
