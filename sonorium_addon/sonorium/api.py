@@ -1558,11 +1558,40 @@ class ApiSonorium(api.Base):
             logger.error(f"Failed to rename theme folder: {e}")
             raise HTTPException(status_code=500, detail=f"Failed to rename: {e}")
 
+        # Generate new theme_id (same logic as theme loading uses)
+        new_theme_id = ''.join(c for c in new_folder_name.lower() if c.isalnum())
+
+        # Update state references from old theme_id to new theme_id
+        state = self.client.state
+        if state and state.settings:
+            settings = state.settings
+
+            # Update favorite_themes
+            if theme_id in settings.favorite_themes:
+                settings.favorite_themes.remove(theme_id)
+                settings.favorite_themes.append(new_theme_id)
+                logger.info(f"Updated favorite from {theme_id} to {new_theme_id}")
+
+            # Update theme_category_assignments
+            if theme_id in settings.theme_category_assignments:
+                settings.theme_category_assignments[new_theme_id] = settings.theme_category_assignments.pop(theme_id)
+                logger.info(f"Updated category assignments from {theme_id} to {new_theme_id}")
+
+            # Update track_presence
+            if theme_id in settings.track_presence:
+                settings.track_presence[new_theme_id] = settings.track_presence.pop(theme_id)
+                logger.info(f"Updated track_presence from {theme_id} to {new_theme_id}")
+
+            # Update track_muted
+            if theme_id in settings.track_muted:
+                settings.track_muted[new_theme_id] = settings.track_muted.pop(theme_id)
+                logger.info(f"Updated track_muted from {theme_id} to {new_theme_id}")
+
+            # Save state
+            state.save()
+
         # Refresh themes to pick up the change
         await self.refresh_themes()
-
-        # Generate new theme_id
-        new_theme_id = ''.join(c for c in new_folder_name.lower() if c.isalnum())
 
         return {
             "status": "ok",

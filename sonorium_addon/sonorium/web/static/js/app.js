@@ -1770,11 +1770,28 @@ function closeExportPresetModal() {
 async function copyPresetJson() {
     const jsonText = document.getElementById('preset-export-json').value;
     try {
-        await navigator.clipboard.writeText(jsonText);
-        showToast('Copied to clipboard', 'success');
+        // Try modern clipboard API first
+        if (navigator.clipboard && window.isSecureContext) {
+            await navigator.clipboard.writeText(jsonText);
+            showToast('Copied to clipboard', 'success');
+        } else {
+            // Fallback for non-secure contexts (like HA ingress)
+            const textArea = document.getElementById('preset-export-json');
+            textArea.select();
+            textArea.setSelectionRange(0, 99999); // For mobile
+            const success = document.execCommand('copy');
+            if (success) {
+                showToast('Copied to clipboard', 'success');
+            } else {
+                showToast('Please select and copy manually (Ctrl+C)', 'warning');
+            }
+        }
     } catch (error) {
         console.error('Failed to copy:', error);
-        showToast('Failed to copy to clipboard', 'error');
+        // Last resort fallback
+        const textArea = document.getElementById('preset-export-json');
+        textArea.select();
+        showToast('Please copy manually (Ctrl+C)', 'warning');
     }
 }
 
