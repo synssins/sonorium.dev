@@ -508,8 +508,12 @@ class ApiSonorium(api.Base):
             # Fallback to common paths
             media_paths = [Path("/media/sonorium"), Path("/share/sonorium")]
 
+        # Normalize theme_id for comparison (convert to hyphenated lowercase)
+        theme_id_normalized = theme_id.lower().replace('_', '-')
+
         for mp in media_paths:
             if not mp.exists():
+                logger.debug(f"_find_theme_folder: path {mp} does not exist")
                 continue
             # Try exact match first
             exact_path = mp / theme_id
@@ -518,13 +522,17 @@ class ApiSonorium(api.Base):
             # Try scanning folders and comparing sanitized names
             for folder in mp.iterdir():
                 if folder.is_dir():
-                    sanitized = folder.name.lower().replace(' ', '-').replace('_', '-')
-                    sanitized = ''.join(c for c in sanitized if c.isalnum() or c == '-')
-                    while '--' in sanitized:
-                        sanitized = sanitized.replace('--', '-')
-                    sanitized = sanitized.strip('-')
-                    if sanitized == theme_id or sanitized == theme_id.replace('_', '-'):
+                    # Normalize folder name the same way
+                    folder_normalized = folder.name.lower().replace(' ', '-').replace('_', '-')
+                    folder_normalized = ''.join(c for c in folder_normalized if c.isalnum() or c == '-')
+                    while '--' in folder_normalized:
+                        folder_normalized = folder_normalized.replace('--', '-')
+                    folder_normalized = folder_normalized.strip('-')
+
+                    if folder_normalized == theme_id_normalized:
                         return folder
+
+        logger.warning(f"_find_theme_folder: no folder found for theme_id '{theme_id}' in paths {media_paths}")
         return None
 
     def _read_theme_metadata(self, theme_id: str) -> dict:
