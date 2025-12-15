@@ -436,6 +436,83 @@ function resolveThemeIcon(iconValue, themeId) {
     return iconValue;
 }
 
+// Available icons for the icon picker
+const availableIcons = [
+    // Nature & Weather
+    '🌧️', '🌲', '🌊', '🔥', '⛈️', '💨', '🐦', '🌙', '❄️', '☀️', '🌸', '🍂', '💧', '🌴', '🏞️', '🏔️', '🏜️',
+    // Places & Buildings
+    '☕', '🏙️', '🏖️', '🏰', '🚂', '🚀',
+    // Fantasy & Themes
+    '🐉', '⚔️', '👻', '🎃', '🧘', '💆',
+    // Music & Entertainment
+    '🎵', '🎷', '🎹', '📚',
+    // Food & Drink
+    '🍺', '🍷', '🍵',
+    // Holidays & Seasons
+    '🎄', '🎅', '🎁', '❤️', '🌺',
+    // Animals
+    '🐺', '🦉', '🐋', '🦋', '🐸',
+    // Misc
+    '✨', '🌈', '💎', '🕯️', '🔔'
+];
+
+// Icon Picker Functions
+function initIconPicker() {
+    const grid = document.getElementById('icon-picker-grid');
+    if (!grid) return;
+
+    grid.innerHTML = availableIcons.map(icon => `
+        <button type="button" class="icon-picker-item" onclick="selectIcon('${icon}')" title="${icon}">
+            ${icon}
+        </button>
+    `).join('');
+}
+
+function toggleIconPicker() {
+    const dropdown = document.getElementById('icon-picker-dropdown');
+    if (!dropdown) return;
+
+    const isVisible = dropdown.style.display !== 'none';
+    dropdown.style.display = isVisible ? 'none' : 'block';
+
+    if (!isVisible) {
+        initIconPicker();
+        updateIconPickerSelection();
+    }
+}
+
+function selectIcon(icon) {
+    document.getElementById('theme-edit-icon').value = icon;
+    document.getElementById('theme-edit-icon-preview').textContent = icon;
+    document.getElementById('icon-picker-dropdown').style.display = 'none';
+    updateIconPickerSelection();
+}
+
+function clearThemeIcon() {
+    const themeId = document.getElementById('theme-edit-id').value;
+    const autoIcon = getThemeIcon(themeId);
+    document.getElementById('theme-edit-icon').value = '';  // Empty = auto-detect
+    document.getElementById('theme-edit-icon-preview').textContent = autoIcon;
+    updateIconPickerSelection();
+}
+
+function updateIconPickerSelection() {
+    const currentIcon = document.getElementById('theme-edit-icon').value;
+    const items = document.querySelectorAll('.icon-picker-item');
+    items.forEach(item => {
+        item.classList.toggle('selected', item.textContent.trim() === currentIcon);
+    });
+}
+
+// Close icon picker when clicking outside
+document.addEventListener('click', function(e) {
+    const picker = document.querySelector('.icon-picker');
+    const dropdown = document.getElementById('icon-picker-dropdown');
+    if (picker && dropdown && !picker.contains(e.target)) {
+        dropdown.style.display = 'none';
+    }
+});
+
 async function togglePlayback(sessionId) {
     const session = sessions.find(s => s.id === sessionId);
     if (!session) return;
@@ -1183,6 +1260,13 @@ function openThemeEditModal(themeId) {
     document.getElementById('theme-edit-title').textContent = `Edit: ${theme.name}`;
     document.getElementById('theme-edit-name').value = theme.name || '';
     document.getElementById('theme-edit-description').value = theme.description || '';
+
+    // Set icon - use stored icon or show auto-detected
+    const storedIcon = theme.icon || '';
+    const displayIcon = storedIcon ? resolveThemeIcon(storedIcon, themeId) : getThemeIcon(themeId);
+    document.getElementById('theme-edit-icon').value = storedIcon ? displayIcon : '';
+    document.getElementById('theme-edit-icon-preview').textContent = displayIcon;
+    document.getElementById('icon-picker-dropdown').style.display = 'none';
 
     // Render category checkboxes
     const categoriesContainer = document.getElementById('theme-edit-categories');
@@ -2022,11 +2106,12 @@ function getSelectedEditCategories() {
 async function saveThemeMetadata() {
     const themeId = document.getElementById('theme-edit-id').value;
     const description = document.getElementById('theme-edit-description').value.trim();
+    const icon = document.getElementById('theme-edit-icon').value.trim();
     const selectedCategories = getSelectedEditCategories();
 
     try {
-        // Save description
-        await api('PUT', `/themes/${themeId}/metadata`, { description });
+        // Save description and icon
+        await api('PUT', `/themes/${themeId}/metadata`, { description, icon });
         // Save categories
         await api('POST', `/themes/${themeId}/categories`, { categories: selectedCategories });
 
@@ -2034,6 +2119,7 @@ async function saveThemeMetadata() {
         const theme = themes.find(t => t.id === themeId);
         if (theme) {
             theme.description = description;
+            theme.icon = icon || null;  // Store null if empty (for auto-detect)
             theme.categories = selectedCategories;
         }
         closeThemeEditModal();

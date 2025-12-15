@@ -229,6 +229,20 @@
                                 </div>
                             </div>
                             <div>
+                                <label>Icon</label>
+                                <div class="icon-picker">
+                                    <div class="icon-picker-current">
+                                        <span id="theme-edit-icon-preview" class="icon-preview">🎵</span>
+                                        <button type="button" class="btn btn-sm btn-secondary" onclick="toggleIconPicker()">Change</button>
+                                        <button type="button" class="btn btn-sm btn-secondary" onclick="clearThemeIcon()" title="Use auto-detected icon">Auto</button>
+                                    </div>
+                                    <input type="hidden" id="theme-edit-icon" value="">
+                                    <div id="icon-picker-dropdown" class="icon-picker-dropdown" style="display: none;">
+                                        <div class="icon-picker-grid" id="icon-picker-grid"></div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div>
                                 <label>Description</label>
                                 <textarea id="theme-edit-description" placeholder="Enter a description for this theme..."></textarea>
                             </div>

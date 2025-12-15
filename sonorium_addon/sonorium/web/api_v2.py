@@ -1304,6 +1304,14 @@ def create_api_router(
         if "description" in body:
             metadata["description"] = body["description"]
 
+        if "icon" in body:
+            # Allow setting icon to empty string to clear it (use auto-detection)
+            icon_value = body["icon"]
+            if icon_value:
+                metadata["icon"] = icon_value
+            elif "icon" in metadata:
+                del metadata["icon"]  # Remove icon to use auto-detection
+
         if "short_file_threshold" in body:
             threshold = float(body["short_file_threshold"])
             if threshold < 0:
