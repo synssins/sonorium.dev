@@ -46,6 +46,7 @@ class ApiSonorium(api.Base):
         self._cycle_manager = None
         self._mqtt_manager = None
         self._plugin_manager = None
+        self._theme_metadata_manager = None
         
         # Register startup event to initialize v2
         @self.app.on_event("startup")
@@ -148,7 +149,17 @@ class ApiSonorium(api.Base):
             self._state_store.load()
             logger.info(f"  State loaded: {len(self._state_store.sessions)} sessions, {len(self._state_store.speaker_groups)} groups")
 
-            # Apply saved track settings to themes
+            # Initialize theme metadata manager
+            from sonorium.core.theme_metadata import ThemeMetadataManager
+            audio_path = self.client.device.path_audio
+            self._theme_metadata_manager = ThemeMetadataManager(audio_path)
+            theme_metadata = self._theme_metadata_manager.scan_themes()
+            logger.info(f"  Theme metadata: {len(theme_metadata)} themes scanned")
+
+            # Migrate any theme data from state.json to metadata.json (one-time migration)
+            self._migrate_theme_data_to_metadata()
+
+            # Apply saved track settings to themes (now reads from metadata.json)
             self._apply_saved_track_settings()
 
             # Initialize channel manager
@@ -238,9 +249,84 @@ class ApiSonorium(api.Base):
             import traceback
             traceback.print_exc()
     
+    def _migrate_theme_data_to_metadata(self):
+        """
+        Migrate theme data from state.json to metadata.json (one-time migration).
+
+        This moves favorites, categories, and track settings from the global
+        state file to each theme's metadata.json, making themes portable.
+        """
+        if not self._state_store or not self._theme_metadata_manager:
+            return
+
+        settings = self._state_store.settings
+        migrated_any = False
+
+        # Get all theme IDs from metadata manager
+        for theme_id, metadata in self._theme_metadata_manager._metadata_cache.items():
+            # theme_id here is actually folder path, get the actual metadata
+            pass
+
+        # Iterate through themes in metadata manager
+        for folder, metadata in self._theme_metadata_manager._metadata_cache.items():
+            theme_id = metadata.id
+            old_theme_id = folder.name.lower().replace(' ', '-').replace('_', '-')
+            old_theme_id = ''.join(c for c in old_theme_id if c.isalnum() or c == '-')
+
+            # Also try alphanumeric-only ID (legacy format)
+            old_theme_id_alnum = ''.join(c for c in folder.name.lower() if c.isalnum())
+
+            changed = False
+
+            # Migrate favorites
+            if old_theme_id in settings.favorite_themes or old_theme_id_alnum in settings.favorite_themes:
+                if not metadata.is_favorite:
+                    metadata.is_favorite = True
+                    changed = True
+                    logger.info(f"  Migrated favorite status for '{metadata.name}'")
+
+            # Migrate categories
+            old_cats = settings.theme_category_assignments.get(old_theme_id) or \
+                       settings.theme_category_assignments.get(old_theme_id_alnum)
+            if old_cats and not metadata.categories:
+                metadata.categories = old_cats
+                changed = True
+                logger.info(f"  Migrated categories for '{metadata.name}': {old_cats}")
+
+            # Migrate track settings
+            track_fields = [
+                ('track_presence', 'presence'),
+                ('track_muted', 'muted'),
+                ('track_volume', 'volume'),
+                ('track_playback_mode', 'playback_mode'),
+                ('track_seamless_loop', 'seamless_loop'),
+                ('track_exclusive', 'exclusive'),
+            ]
+
+            for state_field, track_attr in track_fields:
+                state_dict = getattr(settings, state_field, {})
+                old_data = state_dict.get(old_theme_id) or state_dict.get(old_theme_id_alnum)
+                if old_data:
+                    for track_name, value in old_data.items():
+                        track_settings = metadata.get_track_settings(track_name)
+                        current_value = getattr(track_settings, track_attr)
+                        # Only migrate if different from default
+                        default_values = {'presence': 1.0, 'muted': False, 'volume': 1.0,
+                                         'playback_mode': 'auto', 'seamless_loop': False, 'exclusive': False}
+                        if value != default_values.get(track_attr):
+                            setattr(track_settings, track_attr, value)
+                            changed = True
+
+            if changed:
+                self._theme_metadata_manager.save_metadata(theme_id, metadata)
+                migrated_any = True
+
+        if migrated_any:
+            logger.info("  Theme data migration complete")
+
     def _apply_saved_track_settings(self):
-        """Apply saved track settings (mute, volume, presence, etc.) to theme instances on startup."""
-        if not self._state_store:
+        """Apply saved track settings from metadata.json to theme instances on startup."""
+        if not self._theme_metadata_manager:
             return
 
         from sonorium.recording import PlaybackMode
@@ -254,35 +340,40 @@ class ApiSonorium(api.Base):
             if not theme.instances:
                 continue
 
-            # Get saved settings for this theme
-            saved_presence = self._state_store.settings.track_presence.get(theme.id, {})
-            saved_muted = self._state_store.settings.track_muted.get(theme.id, {})
-            saved_volume = self._state_store.settings.track_volume.get(theme.id, {})
-            saved_playback_mode = self._state_store.settings.track_playback_mode.get(theme.id, {})
-            saved_seamless_loop = self._state_store.settings.track_seamless_loop.get(theme.id, {})
-            saved_exclusive = self._state_store.settings.track_exclusive.get(theme.id, {})
-
-            # Skip themes with no saved settings
-            if not any([saved_presence, saved_muted, saved_volume, saved_playback_mode, saved_seamless_loop, saved_exclusive]):
+            # Find metadata for this theme by matching folder name
+            theme_folder = self._find_theme_folder(theme.id)
+            if not theme_folder:
                 continue
 
+            metadata = self._theme_metadata_manager.get_metadata_by_folder(theme_folder)
+            if not metadata:
+                continue
+
+            # Apply short_file_threshold from metadata
+            theme.short_file_threshold = metadata.short_file_threshold
+
             for inst in theme.instances:
-                # Apply saved presence or default to 1.0 (always playing)
-                inst.presence = saved_presence.get(inst.name, 1.0)
-                # Apply saved muted state (default to enabled/not muted)
-                inst.is_enabled = not saved_muted.get(inst.name, False)
-                # Apply saved volume (default to 1.0)
-                inst.volume = saved_volume.get(inst.name, 1.0)
-                # Apply saved playback mode (default to auto)
-                mode_str = saved_playback_mode.get(inst.name, "auto")
+                track_settings = metadata.tracks.get(inst.name)
+                if not track_settings:
+                    # Use defaults
+                    inst.presence = 1.0
+                    inst.is_enabled = True
+                    inst.volume = 1.0
+                    inst.playback_mode = PlaybackMode.AUTO
+                    inst.crossfade_enabled = True
+                    inst.exclusive = False
+                    continue
+
+                # Apply settings from metadata
+                inst.presence = track_settings.presence
+                inst.is_enabled = not track_settings.muted
+                inst.volume = track_settings.volume
                 try:
-                    inst.playback_mode = PlaybackMode(mode_str)
+                    inst.playback_mode = PlaybackMode(track_settings.playback_mode)
                 except ValueError:
                     inst.playback_mode = PlaybackMode.AUTO
-                # Apply saved seamless loop (default to False, i.e., crossfade enabled)
-                inst.crossfade_enabled = not saved_seamless_loop.get(inst.name, False)
-                # Apply saved exclusive (default to False)
-                inst.exclusive = saved_exclusive.get(inst.name, False)
+                inst.crossfade_enabled = not track_settings.seamless_loop
+                inst.exclusive = track_settings.exclusive
 
             logger.info(f"    Applied settings to theme '{theme.name}'")
 
@@ -503,14 +594,34 @@ class ApiSonorium(api.Base):
         return response
 
     def _find_theme_folder(self, theme_id: str) -> Path | None:
-        """Find theme folder by ID, handling sanitized names."""
-        # Get the actual audio path from device
+        """
+        Find theme folder by ID.
+
+        First checks the metadata manager for UUID-based theme IDs,
+        then falls back to legacy folder name matching for backwards compatibility.
+        """
+        # First, try metadata manager (for UUID-based theme IDs)
+        if self._theme_metadata_manager:
+            folder = self._theme_metadata_manager.get_folder_for_id(theme_id)
+            if folder:
+                return folder
+
+            # Also search by folder-based lookup in metadata cache
+            for folder_path, metadata in self._theme_metadata_manager._metadata_cache.items():
+                # Check if theme_id matches the sanitized folder name (legacy compatibility)
+                folder_id_alnum = ''.join(c for c in folder_path.name.lower() if c.isalnum())
+                theme_id_alnum = ''.join(c for c in theme_id.lower() if c.isalnum())
+                if folder_id_alnum == theme_id_alnum:
+                    return folder_path
+
+        # Fallback: Get the actual audio path from device and scan manually
         device = self.client.device
         if device and hasattr(device, 'path_audio'):
             media_paths = [device.path_audio]
         else:
-            # Fallback to common paths
-            media_paths = [Path("/media/sonorium"), Path("/share/sonorium")]
+            # Fallback to device path_audio (no hardcoded paths)
+            logger.warning("_find_theme_folder: device.path_audio not available")
+            return None
 
         # Create multiple normalized versions of theme_id for matching
         theme_id_lower = theme_id.lower()
@@ -533,7 +644,7 @@ class ApiSonorium(api.Base):
                     if folder_no_sep == theme_id_no_sep:
                         return folder
 
-        logger.warning(f"_find_theme_folder: no folder found for theme_id '{theme_id}' in paths {media_paths}")
+        logger.warning(f"_find_theme_folder: no folder found for theme_id '{theme_id}'")
         return None
 
     def _read_theme_metadata(self, theme_id: str) -> dict:
@@ -566,18 +677,55 @@ class ApiSonorium(api.Base):
             logger.error(f"Failed to write metadata for theme {theme_id}: {e}")
             return False
 
+    def _save_track_setting_to_metadata(self, theme_id: str, track_name: str, **settings) -> bool:
+        """Save track settings to metadata.json instead of state.json."""
+        if not self._theme_metadata_manager:
+            return False
+
+        # Find the metadata for this theme
+        theme_folder = self._find_theme_folder(theme_id)
+        if not theme_folder:
+            logger.error(f"Cannot save track setting: theme folder not found for '{theme_id}'")
+            return False
+
+        metadata = self._theme_metadata_manager.get_metadata_by_folder(theme_folder)
+        if not metadata:
+            logger.error(f"Cannot save track setting: metadata not found for '{theme_id}'")
+            return False
+
+        # Update track settings
+        track_settings = metadata.get_track_settings(track_name)
+        for key, value in settings.items():
+            if hasattr(track_settings, key):
+                setattr(track_settings, key, value)
+
+        # Save back to metadata.json
+        return self._theme_metadata_manager.save_metadata(metadata.id, metadata)
+
+    def _get_theme_by_id(self, theme_id: str):
+        """
+        Get a theme by ID, handling both legacy folder-based IDs and UUID-based IDs.
+        Returns (theme, folder) tuple or (None, None) if not found.
+        """
+        # First try direct lookup by folder-based ID
+        theme = self.client.device.themes.id.get(theme_id)
+        if theme:
+            folder = self._find_theme_folder(theme_id)
+            return theme, folder
+
+        # Try finding by metadata ID (UUID-based)
+        theme_folder = self._find_theme_folder(theme_id)
+        if theme_folder:
+            # Find matching theme by folder name
+            for t in self.client.device.themes:
+                if t.name == theme_folder.name:
+                    return t, theme_folder
+
+        return None, None
+
     async def list_themes(self):
-        """List all available themes with full metadata."""
-        import json
+        """List all available themes with full metadata from metadata.json files."""
         device = self.client.device
-
-        # Get favorites and categories from state if available
-        favorites = []
-        category_assignments = {}
-        if self._state_store:
-            favorites = self._state_store.settings.favorite_themes
-            category_assignments = self._state_store.settings.theme_category_assignments
-
         themes = []
         seen_folders = set()
         audio_extensions = {'.mp3', '.wav', '.flac', '.ogg'}
@@ -586,43 +734,54 @@ class ApiSonorium(api.Base):
         for theme in device.themes:
             enabled_count = sum(1 for i in theme.instances if i.is_enabled)
 
-            # Try to read metadata.json from theme folder
-            metadata = self._read_theme_metadata(theme.id)
-
-            # Apply short_file_threshold from metadata if present
-            if "short_file_threshold" in metadata:
-                theme.short_file_threshold = float(metadata["short_file_threshold"])
-
-            # Track the folder name
+            # Get metadata from metadata manager or read from file
             theme_folder = self._find_theme_folder(theme.id)
-            if theme_folder:
+            metadata = None
+            if theme_folder and self._theme_metadata_manager:
+                metadata = self._theme_metadata_manager.get_metadata_by_folder(theme_folder)
                 seen_folders.add(theme_folder.name)
 
+            # Fall back to reading metadata dict directly
+            if not metadata:
+                metadata_dict = self._read_theme_metadata(theme.id)
+                # Use the persistent theme ID from metadata if available
+                theme_id = metadata_dict.get("id", theme.id)
+                themes.append({
+                    "id": theme_id,
+                    "name": metadata_dict.get("name", theme.name),
+                    "total_tracks": len(theme.instances),
+                    "enabled_tracks": enabled_count,
+                    "url": theme.url,
+                    "description": metadata_dict.get("description", ""),
+                    "icon": metadata_dict.get("icon", ""),
+                    "is_favorite": metadata_dict.get("is_favorite", False),
+                    "has_audio": True,
+                    "categories": metadata_dict.get("categories", []),
+                    "short_file_threshold": metadata_dict.get("short_file_threshold", theme.short_file_threshold),
+                })
+                continue
+
+            # Apply short_file_threshold from metadata
+            theme.short_file_threshold = metadata.short_file_threshold
+
+            # Use the persistent UUID from metadata.json as the theme ID
             themes.append({
-                "id": theme.id,
-                "name": theme.name,
+                "id": metadata.id,
+                "name": metadata.name,
                 "total_tracks": len(theme.instances),
                 "enabled_tracks": enabled_count,
                 "url": theme.url,
-                "description": metadata.get("description", ""),
-                "icon": metadata.get("icon", ""),
-                "is_favorite": theme.id in favorites,
+                "description": metadata.description,
+                "icon": metadata.icon,
+                "is_favorite": metadata.is_favorite,
                 "has_audio": True,
-                "categories": category_assignments.get(theme.id, []),
-                "short_file_threshold": theme.short_file_threshold,
+                "categories": metadata.categories,
+                "short_file_threshold": metadata.short_file_threshold,
             })
 
-        # Then scan for empty theme folders
-        media_paths = [
-            Path("/media/sonorium"),
-            Path("/share/sonorium"),
-        ]
-
-        for mp in media_paths:
-            if not mp.exists():
-                continue
-
-            for folder in mp.iterdir():
+        # Then scan for empty theme folders (using device.path_audio, not hardcoded)
+        if device and hasattr(device, 'path_audio') and device.path_audio.exists():
+            for folder in device.path_audio.iterdir():
                 if not folder.is_dir() or folder.name in seen_folders:
                     continue
 
@@ -633,41 +792,32 @@ class ApiSonorium(api.Base):
                 if audio_files:
                     continue
 
-                # Generate sanitized ID
-                sanitized_id = folder.name.lower().replace(' ', '-').replace('_', '-')
-                sanitized_id = ''.join(c for c in sanitized_id if c.isalnum() or c == '-')
-                while '--' in sanitized_id:
-                    sanitized_id = sanitized_id.replace('--', '-')
-                sanitized_id = sanitized_id.strip('-')
+                # Get or create metadata for empty folder
+                if self._theme_metadata_manager:
+                    metadata = self._theme_metadata_manager.get_metadata_by_folder(folder)
+                    if not metadata:
+                        # Create metadata for this empty folder
+                        metadata = self._theme_metadata_manager._load_or_create_metadata(folder)
 
-                # Read metadata if exists
-                metadata = {}
-                meta_path = folder / "metadata.json"
-                if meta_path.exists():
-                    try:
-                        metadata = json.loads(meta_path.read_text())
-                    except Exception:
-                        pass
-
-                themes.append({
-                    "id": sanitized_id,
-                    "name": folder.name,
-                    "total_tracks": 0,
-                    "enabled_tracks": 0,
-                    "url": "",
-                    "description": metadata.get("description", ""),
-                    "icon": metadata.get("icon", ""),
-                    "is_favorite": sanitized_id in favorites,
-                    "has_audio": False,
-                    "categories": category_assignments.get(sanitized_id, []),
-                })
+                    themes.append({
+                        "id": metadata.id,
+                        "name": metadata.name,
+                        "total_tracks": 0,
+                        "enabled_tracks": 0,
+                        "url": "",
+                        "description": metadata.description,
+                        "icon": metadata.icon,
+                        "is_favorite": metadata.is_favorite,
+                        "has_audio": False,
+                        "categories": metadata.categories,
+                    })
 
         return themes
 
     async def refresh_themes(self):
         """Rescan theme folders and reload themes."""
         from sonorium.theme import ThemeDefinition
-        from sonorium.recording import RecordingMetadata
+        from sonorium.recording import RecordingMetadata, PlaybackMode
         from fmtr.tools.iterator_tools import IndexList
 
         device = self.client.device
@@ -675,6 +825,10 @@ class ApiSonorium(api.Base):
         audio_extensions = ['.mp3', '.wav', '.flac', '.ogg']
 
         logger.info(f'Rescanning themes in "{path_audio}"...')
+
+        # Rescan metadata manager to pick up any new/changed folders
+        if self._theme_metadata_manager:
+            self._theme_metadata_manager.scan_themes()
 
         # Scan for theme folders
         theme_folders = [folder for folder in path_audio.iterdir() if folder.is_dir()]
@@ -714,44 +868,45 @@ class ApiSonorium(api.Base):
 
         # Set current theme if we have themes
         if device.themes:
-            from sonorium.recording import PlaybackMode
-
             device.themes.current = device.themes[0]
-            # Enable all recordings and apply saved track settings
-            for theme in device.themes:
-                if theme.instances:
-                    # Get saved settings for this theme
-                    saved_presence = {}
-                    saved_muted = {}
-                    saved_volume = {}
-                    saved_playback_mode = {}
-                    saved_seamless_loop = {}
-                    saved_exclusive = {}
-                    if self._state_store:
-                        saved_presence = self._state_store.settings.track_presence.get(theme.id, {})
-                        saved_muted = self._state_store.settings.track_muted.get(theme.id, {})
-                        saved_volume = self._state_store.settings.track_volume.get(theme.id, {})
-                        saved_playback_mode = self._state_store.settings.track_playback_mode.get(theme.id, {})
-                        saved_seamless_loop = self._state_store.settings.track_seamless_loop.get(theme.id, {})
-                        saved_exclusive = self._state_store.settings.track_exclusive.get(theme.id, {})
 
-                    for inst in theme.instances:
-                        # Apply saved presence or default to 1.0 (always playing)
-                        inst.presence = saved_presence.get(inst.name, 1.0)
-                        # Apply saved muted state (default to enabled/not muted)
-                        inst.is_enabled = not saved_muted.get(inst.name, False)
-                        # Apply saved volume (default to 1.0)
-                        inst.volume = saved_volume.get(inst.name, 1.0)
-                        # Apply saved playback mode (default to auto)
-                        mode_str = saved_playback_mode.get(inst.name, "auto")
-                        try:
-                            inst.playback_mode = PlaybackMode(mode_str)
-                        except ValueError:
-                            inst.playback_mode = PlaybackMode.AUTO
-                        # Apply saved seamless loop (default to False, i.e., crossfade enabled)
-                        inst.crossfade_enabled = not saved_seamless_loop.get(inst.name, False)
-                        # Apply saved exclusive (default to False)
-                        inst.exclusive = saved_exclusive.get(inst.name, False)
+            # Enable all recordings and apply saved track settings from metadata.json
+            for theme in device.themes:
+                if not theme.instances:
+                    continue
+
+                # Find metadata for this theme
+                theme_folder = self._find_theme_folder(theme.id)
+                metadata = None
+                if theme_folder and self._theme_metadata_manager:
+                    metadata = self._theme_metadata_manager.get_metadata_by_folder(theme_folder)
+
+                if metadata:
+                    # Apply short_file_threshold from metadata
+                    theme.short_file_threshold = metadata.short_file_threshold
+
+                for inst in theme.instances:
+                    if metadata:
+                        track_settings = metadata.tracks.get(inst.name)
+                        if track_settings:
+                            inst.presence = track_settings.presence
+                            inst.is_enabled = not track_settings.muted
+                            inst.volume = track_settings.volume
+                            try:
+                                inst.playback_mode = PlaybackMode(track_settings.playback_mode)
+                            except ValueError:
+                                inst.playback_mode = PlaybackMode.AUTO
+                            inst.crossfade_enabled = not track_settings.seamless_loop
+                            inst.exclusive = track_settings.exclusive
+                            continue
+
+                    # Use defaults if no metadata
+                    inst.presence = 1.0
+                    inst.is_enabled = True
+                    inst.volume = 1.0
+                    inst.playback_mode = PlaybackMode.AUTO
+                    inst.crossfade_enabled = True
+                    inst.exclusive = False
 
         logger.info(f'Theme refresh complete: {len(device.themes)} themes loaded')
 
@@ -780,35 +935,34 @@ class ApiSonorium(api.Base):
         }
 
     async def get_theme_tracks(self, theme_id: str):
-        """Get all tracks for a theme with presence/mute settings."""
-        theme = self.client.device.themes.id.get(theme_id)
+        """Get all tracks for a theme with presence/mute settings from metadata.json."""
+        theme, theme_folder = self._get_theme_by_id(theme_id)
         if not theme:
             return {"error": "Theme not found"}
 
-        if not self._state_store:
-            return {"error": "State not available"}
-
-        # Get saved settings
-        track_presence = self._state_store.settings.track_presence.get(theme_id, {})
-        track_muted = self._state_store.settings.track_muted.get(theme_id, {})
-        track_volume = self._state_store.settings.track_volume.get(theme_id, {})
-        track_playback_mode = self._state_store.settings.track_playback_mode.get(theme_id, {})
-        track_seamless_loop = self._state_store.settings.track_seamless_loop.get(theme_id, {})
-        track_exclusive = self._state_store.settings.track_exclusive.get(theme_id, {})
+        # Get settings from metadata.json
+        metadata = None
+        if theme_folder and self._theme_metadata_manager:
+            metadata = self._theme_metadata_manager.get_metadata_by_folder(theme_folder)
 
         tracks = []
         for inst in theme.instances:
+            # Get track settings from metadata or use instance values (which were loaded from metadata)
+            track_settings = metadata.tracks.get(inst.name) if metadata else None
+
             tracks.append({
                 "name": inst.name,
-                "presence": track_presence.get(inst.name, 1.0),
-                "muted": track_muted.get(inst.name, False),
+                "presence": track_settings.presence if track_settings else inst.presence,
+                "muted": track_settings.muted if track_settings else not inst.is_enabled,
                 "is_enabled": inst.is_enabled,
                 "duration_seconds": round(inst.meta.duration_seconds, 1),
                 "is_short_file": inst.meta.is_short_file(theme.short_file_threshold),
-                "volume": track_volume.get(inst.name, 1.0),
-                "playback_mode": track_playback_mode.get(inst.name, "auto"),
-                "seamless_loop": track_seamless_loop.get(inst.name, False),
-                "exclusive": track_exclusive.get(inst.name, False),
+                "volume": track_settings.volume if track_settings else inst.volume,
+                "playback_mode": track_settings.playback_mode if track_settings else (
+                    inst.playback_mode.value if hasattr(inst.playback_mode, 'value') else 'auto'
+                ),
+                "seamless_loop": track_settings.seamless_loop if track_settings else not inst.crossfade_enabled,
+                "exclusive": track_settings.exclusive if track_settings else inst.exclusive,
             })
 
         # Sort tracks alphabetically by name
@@ -877,10 +1031,16 @@ class ApiSonorium(api.Base):
         """
         theme = self.client.device.themes.id.get(theme_id)
         if not theme:
-            return {"error": "Theme not found"}
-
-        if not self._state_store:
-            return {"error": "State not available"}
+            # Try finding by metadata ID
+            theme_folder = self._find_theme_folder(theme_id)
+            if theme_folder:
+                # Find matching theme by folder name
+                for t in self.client.device.themes:
+                    if t.name == theme_folder.name:
+                        theme = t
+                        break
+            if not theme:
+                return {"error": "Theme not found"}
 
         try:
             body = await request.json()
@@ -907,22 +1067,16 @@ class ApiSonorium(api.Base):
         # Update the live instance presence
         track_inst.presence = presence
 
-        # Persist to settings
-        if theme_id not in self._state_store.settings.track_presence:
-            self._state_store.settings.track_presence[theme_id] = {}
-        self._state_store.settings.track_presence[theme_id][track_name] = presence
-        self._state_store.save()
+        # Persist to metadata.json
+        self._save_track_setting_to_metadata(theme_id, track_name, presence=presence)
 
         return {"status": "ok", "track": track_name, "presence": presence}
 
     async def set_track_muted(self, theme_id: str, track_name: str, request: Request):
         """Set muted state for a specific track in a theme."""
-        theme = self.client.device.themes.id.get(theme_id)
+        theme, _ = self._get_theme_by_id(theme_id)
         if not theme:
             return {"error": "Theme not found"}
-
-        if not self._state_store:
-            return {"error": "State not available"}
 
         try:
             body = await request.json()
@@ -948,11 +1102,8 @@ class ApiSonorium(api.Base):
         # Update the live instance
         track_inst.is_enabled = not muted
 
-        # Persist to settings
-        if theme_id not in self._state_store.settings.track_muted:
-            self._state_store.settings.track_muted[theme_id] = {}
-        self._state_store.settings.track_muted[theme_id][track_name] = muted
-        self._state_store.save()
+        # Persist to metadata.json
+        self._save_track_setting_to_metadata(theme_id, track_name, muted=muted)
 
         return {"status": "ok", "track": track_name, "muted": muted}
 
@@ -961,12 +1112,9 @@ class ApiSonorium(api.Base):
 
         Volume controls how loud a track plays (0.0-1.0), independent of presence.
         """
-        theme = self.client.device.themes.id.get(theme_id)
+        theme, _ = self._get_theme_by_id(theme_id)
         if not theme:
             return {"error": "Theme not found"}
-
-        if not self._state_store:
-            return {"error": "State not available"}
 
         try:
             body = await request.json()
@@ -993,11 +1141,8 @@ class ApiSonorium(api.Base):
         # Update the live instance volume
         track_inst.volume = volume
 
-        # Persist to settings
-        if theme_id not in self._state_store.settings.track_volume:
-            self._state_store.settings.track_volume[theme_id] = {}
-        self._state_store.settings.track_volume[theme_id][track_name] = volume
-        self._state_store.save()
+        # Persist to metadata.json
+        self._save_track_setting_to_metadata(theme_id, track_name, volume=volume)
 
         return {"status": "ok", "track": track_name, "volume": volume}
 
@@ -1012,12 +1157,9 @@ class ApiSonorium(api.Base):
         """
         from sonorium.recording import PlaybackMode
 
-        theme = self.client.device.themes.id.get(theme_id)
+        theme, _ = self._get_theme_by_id(theme_id)
         if not theme:
             return {"error": "Theme not found"}
-
-        if not self._state_store:
-            return {"error": "State not available"}
 
         try:
             body = await request.json()
@@ -1048,22 +1190,16 @@ class ApiSonorium(api.Base):
         # Update the live instance
         track_inst.playback_mode = mode
 
-        # Persist to settings
-        if theme_id not in self._state_store.settings.track_playback_mode:
-            self._state_store.settings.track_playback_mode[theme_id] = {}
-        self._state_store.settings.track_playback_mode[theme_id][track_name] = mode_str
-        self._state_store.save()
+        # Persist to metadata.json
+        self._save_track_setting_to_metadata(theme_id, track_name, playback_mode=mode_str)
 
         return {"status": "ok", "track": track_name, "playback_mode": mode_str}
 
     async def set_track_seamless_loop(self, theme_id: str, track_name: str, request: Request):
         """Set seamless loop (disable crossfade) for a specific track in a theme."""
-        theme = self.client.device.themes.id.get(theme_id)
+        theme, _ = self._get_theme_by_id(theme_id)
         if not theme:
             return {"error": "Theme not found"}
-
-        if not self._state_store:
-            return {"error": "State not available"}
 
         try:
             body = await request.json()
@@ -1073,6 +1209,8 @@ class ApiSonorium(api.Base):
         seamless = body.get("seamless_loop")
         if seamless is None:
             return {"error": "seamless_loop is required"}
+
+        seamless = bool(seamless)
 
         # Find the track instance
         track_inst = None
@@ -1087,17 +1225,8 @@ class ApiSonorium(api.Base):
         # Update the live instance
         track_inst.crossfade_enabled = not seamless
 
-        # Persist to settings
-        if theme_id not in self._state_store.settings.track_seamless_loop:
-            self._state_store.settings.track_seamless_loop[theme_id] = {}
-
-        if seamless:
-            self._state_store.settings.track_seamless_loop[theme_id][track_name] = True
-        else:
-            # Remove from dict if disabling seamless
-            self._state_store.settings.track_seamless_loop[theme_id].pop(track_name, None)
-
-        self._state_store.save()
+        # Persist to metadata.json
+        self._save_track_setting_to_metadata(theme_id, track_name, seamless_loop=seamless)
 
         return {"status": "ok", "track": track_name, "seamless_loop": seamless}
 
@@ -1108,12 +1237,9 @@ class ApiSonorium(api.Base):
         Other exclusive tracks will wait until the playing track finishes
         before starting their own sparse timer.
         """
-        theme = self.client.device.themes.id.get(theme_id)
+        theme, _ = self._get_theme_by_id(theme_id)
         if not theme:
             return {"error": "Theme not found"}
-
-        if not self._state_store:
-            return {"error": "State not available"}
 
         try:
             body = await request.json()
@@ -1123,6 +1249,8 @@ class ApiSonorium(api.Base):
         exclusive = body.get("exclusive")
         if exclusive is None:
             return {"error": "exclusive is required"}
+
+        exclusive = bool(exclusive)
 
         # Find the track instance
         track_inst = None
@@ -1137,30 +1265,19 @@ class ApiSonorium(api.Base):
         # Update the live instance
         track_inst.exclusive = exclusive
 
-        # Persist to settings
-        if theme_id not in self._state_store.settings.track_exclusive:
-            self._state_store.settings.track_exclusive[theme_id] = {}
-
-        if exclusive:
-            self._state_store.settings.track_exclusive[theme_id][track_name] = True
-        else:
-            # Remove from dict if disabling exclusive
-            self._state_store.settings.track_exclusive[theme_id].pop(track_name, None)
-
-        self._state_store.save()
+        # Persist to metadata.json
+        self._save_track_setting_to_metadata(theme_id, track_name, exclusive=exclusive)
 
         return {"status": "ok", "track": track_name, "exclusive": exclusive}
 
     async def reset_theme_tracks(self, theme_id: str):
         """Reset all track settings to defaults for a theme."""
         from sonorium.recording import PlaybackMode
+        from sonorium.core.theme_metadata import TrackSettings
 
-        theme = self.client.device.themes.id.get(theme_id)
+        theme, _ = self._get_theme_by_id(theme_id)
         if not theme:
             return {"error": "Theme not found"}
-
-        if not self._state_store:
-            return {"error": "State not available"}
 
         # Reset live instances
         for inst in theme.instances:
@@ -1171,20 +1288,15 @@ class ApiSonorium(api.Base):
             inst.crossfade_enabled = True
             inst.exclusive = False
 
-        # Clear persisted settings
-        if theme_id in self._state_store.settings.track_presence:
-            del self._state_store.settings.track_presence[theme_id]
-        if theme_id in self._state_store.settings.track_muted:
-            del self._state_store.settings.track_muted[theme_id]
-        if theme_id in self._state_store.settings.track_volume:
-            del self._state_store.settings.track_volume[theme_id]
-        if theme_id in self._state_store.settings.track_playback_mode:
-            del self._state_store.settings.track_playback_mode[theme_id]
-        if theme_id in self._state_store.settings.track_seamless_loop:
-            del self._state_store.settings.track_seamless_loop[theme_id]
-        if theme_id in self._state_store.settings.track_exclusive:
-            del self._state_store.settings.track_exclusive[theme_id]
-        self._state_store.save()
+        # Clear persisted settings in metadata.json
+        if self._theme_metadata_manager:
+            theme_folder = self._find_theme_folder(theme_id)
+            if theme_folder:
+                metadata = self._theme_metadata_manager.get_metadata_by_folder(theme_folder)
+                if metadata:
+                    # Reset all tracks to defaults
+                    metadata.tracks = {}
+                    self._theme_metadata_manager.save_metadata(metadata.id, metadata)
 
         return {"status": "ok", "theme_id": theme_id}
 
