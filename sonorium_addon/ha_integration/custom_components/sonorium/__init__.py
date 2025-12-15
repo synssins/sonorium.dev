@@ -51,7 +51,7 @@ class SonoriumApiClient:
             response.raise_for_status()
             return await response.json()
 
-    async def async_get_themes(self) -> dict[str, Any]:
+    async def async_get_themes(self) -> list[dict[str, Any]]:
         """Get available themes."""
         async with self._session.get(f"{self._base_url}{API_THEMES}") as response:
             response.raise_for_status()
@@ -120,7 +120,7 @@ class SonoriumDataUpdateCoordinator(DataUpdateCoordinator):
             return {
                 "channels": {ch["id"]: ch for ch in channels},
                 "status": status,
-                "themes": themes.get("themes", []),
+                "themes": themes,  # API returns list directly
             }
         except aiohttp.ClientError as err:
             raise UpdateFailed(f"Error communicating with Sonorium: {err}") from err
