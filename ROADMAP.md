@@ -2,7 +2,7 @@
 
 This document outlines the planned features and development direction for Sonorium. Features are organized by priority and complexity.
 
-## Current State (v1.1.52-dev)
+## Current State (v1.2.0)
 
 Sonorium is a fully functional multi-zone ambient soundscape mixer for Home Assistant with:
 
@@ -19,12 +19,24 @@ Sonorium is a fully functional multi-zone ambient soundscape mixer for Home Assi
 - **Local browser preview** - Preview tracks and full themes directly in the browser
 - **Theme presets** - Save and load named track configurations per theme
 - **UUID-based theme identification** - Portable themes that survive folder renames
+- **Theme export/import** - Package themes as zip files for sharing and backup
+- **Bundled starter themes** - Two curated themes (Sleigh Ride, Tavern) included out-of-the-box
 
 ---
 
 ## Recently Completed
 
-### Theme Presets with Channel Support (v1.1.52-dev)
+### Bundled Starter Themes (v1.2.0)
+- Two curated themes included: Sleigh Ride and Tavern
+- Automatically installed on first run
+- Full metadata and presets included
+
+### Theme Export/Import (v1.2.0)
+- Export any theme as a zip file with all audio files and settings
+- Import theme zip files to add new soundscapes
+- UUID-based identification ensures themes work across installations
+
+### Theme Presets with Channel Support (v1.2.0)
 - Save current track settings as named presets
 - Load, update, rename, delete, and export presets
 - Import presets via JSON for community sharing
@@ -33,47 +45,47 @@ Sonorium is a fully functional multi-zone ambient soundscape mixer for Home Assi
 - Presets persist in theme's metadata.json (portable with theme)
 - Preset changes apply immediately to playing channels
 
-### UUID-Based Theme Identification (v1.1.52-dev)
+### UUID-Based Theme Identification (v1.2.0)
 - Themes identified by persistent UUID stored in metadata.json
 - Themes survive folder renames - all settings follow the theme
 - Favorites, categories, track settings, and presets stored per-theme
 - Portable theme packages that work across installations
 
-### Home Assistant Entity Integration (v1.1.28-dev)
+### Home Assistant Entity Integration (v1.2.0)
 - Custom integration exposes channels as `media_player` entities
 - `media_player.sonorium_channel_1` through `media_player.sonorium_channel_6`
 - Control channels from HA dashboards, automations, and scripts
 - Select source (theme) from dropdown, play/stop controls
 - Dashboard YAML examples included
 
-### Plugin System (v1.1.28-dev)
+### Plugin System (v1.2.0)
 - Extensible plugin architecture with hot-loading
 - Built-in Ambient Mixer plugin for importing soundscapes from ambient-mixer.com
 - Plugin enable/disable controls in Settings
 - Plugin upload and management UI
 
-### Local Browser Preview (v1.1.28-dev)
+### Local Browser Preview (v1.2.0)
 - Preview individual tracks in the track mixer
 - Preview full theme mix directly in browser
 - Volume control and play/pause for theme preview
 - No speaker required - plays on the device viewing the UI
 
-### Live Speaker Management (v1.1.28-dev)
+### Live Speaker Management (v1.2.0)
 - Add speakers to a playing channel - instantly syncs to current position
 - Remove speakers from a playing channel - remaining speakers continue uninterrupted
 - All speakers hear identical audio (broadcast model)
 
-### Track Mixer with Advanced Controls (v1.1.17-dev)
+### Track Mixer with Advanced Controls (v1.2.0)
 - Per-track volume control independent of presence
 - Per-track playback mode selection (Auto, Continuous, Sparse, Presence)
 - Seamless loop option (disable crossfade) per track
 - Advanced settings panel with gear toggle
 - Configurable short file threshold per theme
 
-### Broadcast Audio Model (v1.1.5-dev)
+### Broadcast Audio Model (v1.2.0)
 Radio-station style streaming where all speakers tuned to the same channel hear identical audio. New speakers join at the current playback position rather than starting independent streams.
 
-### Track Presence Control (v1.1.4-dev)
+### Track Presence Control (v1.2.0)
 Per-track "presence" setting (0-100%) that controls how often a track appears in the mix. Low presence tracks fade in and out naturally using equal-power crossfades.
 
 ---
@@ -97,22 +109,6 @@ Per-track "presence" setting (0-100%) that controls how often a track appears in
 - Variety during long work sessions
 - Different ambient sounds throughout the day
 - Randomized nature sounds for meditation
-
-### Theme Export/Import
-
-**Goal:** Package themes for sharing and backup.
-
-**Features:**
-- Zip archive format containing audio files + metadata JSON
-- Self-contained, shareable packages
-- Presets bundled in export, travel with theme
-- Versioning in export metadata for future compatibility
-- Graceful validation on import with clear error messages
-
-**Use Cases:**
-- Share custom themes with other Sonorium users
-- Backup themes before system changes
-- Migrate themes between instances
 
 ### Collapsible Navigation Menu
 

@@ -8,9 +8,20 @@
 
 Sonorium lets you create immersive ambient audio environments throughout your home. Stream richly layered soundscapes—from distant thunder and rainfall to forest ambiance and ocean waves—to any combination of media players in your Home Assistant setup.
 
-## What's New in v1.1
+## What's New in v1.2
 
-### Theme Presets & Portable Themes (v1.1.52)
+### Bundled Starter Themes (v1.2)
+Two curated themes included out-of-the-box:
+- **Sleigh Ride** - Winter ambience with sleigh bells, horse-drawn carriage sounds, and gentle snowfall
+- **Tavern** - Medieval inn atmosphere with crackling fireplace, pub chatter, and lute music
+
+### Theme Export/Import (v1.2)
+Package and share your themes:
+- **Export** - Download any theme as a zip file with all audio files and settings
+- **Import** - Upload theme zip files to add new soundscapes
+- **Portable** - Themes work across different Sonorium installations
+
+### Theme Presets & Portable Themes (v1.2)
 Save and load named track configurations, with UUID-based theme identification for portability:
 
 **Presets:**
@@ -36,7 +47,7 @@ Fine-tune how each audio file plays within a theme:
   - **Sparse** - Play once at full volume, then wait before repeating (great for short sounds like bird calls or thunder claps)
   - **Presence** - Fade in/out based on presence setting
 
-### Plugin System (v1.1.28)
+### Plugin System (v1.2)
 Extend Sonorium with plugins:
 
 - **Ambient Mixer Importer** - Import soundscapes from ambient-mixer.com
