@@ -4,7 +4,7 @@ from functools import cached_property
 import numpy as np
 
 from sonorium.obs import logger
-from sonorium.recording import LOG_THRESHOLD
+from sonorium.recording import LOG_THRESHOLD, ExclusionGroupCoordinator
 from fmtr.tools import av
 from fmtr.tools.iterator_tools import IndexList
 from fmtr.tools.string_tools import sanitize
@@ -91,7 +91,15 @@ class ThemeStream:
 
     def __init__(self, theme_def: ThemeDefinition):
         self.theme_def = theme_def
-        self.recording_streams = [instance.get_stream() for instance in theme_def.instances]
+
+        # Create shared exclusion coordinator for tracks marked as exclusive
+        self.exclusion_coordinator = ExclusionGroupCoordinator()
+
+        # Create streams, passing the exclusion coordinator
+        self.recording_streams = [
+            instance.get_stream(exclusion_coordinator=self.exclusion_coordinator)
+            for instance in theme_def.instances
+        ]
 
     @cached_property
     def chunk_silence(self):

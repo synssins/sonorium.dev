@@ -1142,6 +1142,7 @@ async function loadTrackMixer(themeId) {
             const volumePercent = Math.round((track.volume || 1.0) * 100);
             const playbackMode = track.playback_mode || 'auto';
             const seamlessLoop = track.seamless_loop || false;
+            const exclusive = track.exclusive || false;
             return `
             <div class="track-item ${track.muted ? 'muted' : ''}" data-track="${escapeHtml(track.name)}">
                 <div class="track-preview-cell">
@@ -1171,6 +1172,11 @@ async function loadTrackMixer(themeId) {
                         <input type="checkbox" ${seamlessLoop ? 'checked' : ''}
                                onchange="setTrackSeamlessLoop('${escapeHtml(track.name)}', this.checked)">
                         Seamless
+                    </label>
+                    <label class="track-exclusive-label" title="Only one exclusive track can play at a time">
+                        <input type="checkbox" ${exclusive ? 'checked' : ''}
+                               onchange="setTrackExclusive('${escapeHtml(track.name)}', this.checked)">
+                        Exclusive
                     </label>
                 </div>
                 <div class="track-sliders-cell">
@@ -1316,6 +1322,17 @@ async function setTrackSeamlessLoop(trackName, seamless) {
     } catch (error) {
         console.error('Failed to set seamless loop:', error);
         showToast('Failed to set seamless loop', 'error');
+    }
+}
+
+async function setTrackExclusive(trackName, exclusive) {
+    if (!currentTrackMixerThemeId) return;
+
+    try {
+        await api('PUT', `/themes/${currentTrackMixerThemeId}/tracks/${encodeURIComponent(trackName)}/exclusive`, { exclusive: exclusive });
+    } catch (error) {
+        console.error('Failed to set exclusive:', error);
+        showToast('Failed to set exclusive', 'error');
     }
 }
 

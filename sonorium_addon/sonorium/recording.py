@@ -1,10 +1,81 @@
 from enum import Enum
+import threading
+import time
 import numpy as np
 
 from sonorium.obs import logger
 from fmtr.tools import av
 
 LOG_THRESHOLD = 500
+
+
+class ExclusionGroupCoordinator:
+    """
+    Coordinates exclusive playback for tracks in a mutual exclusion group.
+
+    When multiple tracks are marked as 'exclusive', only one can play at a time.
+    Other exclusive tracks must wait until the playing track finishes before
+    they can start their sparse timer.
+
+    This is shared across all streams in a ThemeStream.
+    """
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._playing_track: str | None = None  # Name of currently playing exclusive track
+        self._play_end_time: float = 0  # When current track will finish
+
+    def try_start_playing(self, track_name: str, duration_seconds: float) -> bool:
+        """
+        Attempt to start playing an exclusive track.
+
+        Returns True if allowed to play, False if another exclusive track is playing.
+        """
+        with self._lock:
+            now = time.time()
+
+            # Check if current playing track has finished
+            if self._playing_track is not None and now >= self._play_end_time:
+                self._playing_track = None
+
+            # If no exclusive track is playing, we can play
+            if self._playing_track is None:
+                self._playing_track = track_name
+                self._play_end_time = now + duration_seconds
+                logger.debug(f'ExclusionGroup: {track_name} starting playback (duration: {duration_seconds:.1f}s)')
+                return True
+
+            # Another track is playing
+            return False
+
+    def finish_playing(self, track_name: str):
+        """Mark that an exclusive track has finished playing."""
+        with self._lock:
+            if self._playing_track == track_name:
+                logger.debug(f'ExclusionGroup: {track_name} finished playback')
+                self._playing_track = None
+                self._play_end_time = 0
+
+    def is_blocked(self, track_name: str) -> bool:
+        """Check if a track is blocked from playing."""
+        with self._lock:
+            now = time.time()
+
+            # Check if current playing track has finished
+            if self._playing_track is not None and now >= self._play_end_time:
+                self._playing_track = None
+                return False
+
+            # Blocked if another track is playing
+            return self._playing_track is not None and self._playing_track != track_name
+
+    def get_wait_time(self) -> float:
+        """Get seconds until the current exclusive track finishes."""
+        with self._lock:
+            if self._playing_track is None:
+                return 0
+            remaining = self._play_end_time - time.time()
+            return max(0, remaining)
 
 
 class PlaybackMode(str, Enum):
@@ -109,6 +180,7 @@ class RecordingThemeInstance:
         self.is_enabled = True  # Master enable/disable (mute)
         self.crossfade_enabled = True  # Enable crossfade looping by default
         self.playback_mode = PlaybackMode.AUTO  # How playback/looping is handled
+        self.exclusive = False  # If True, only one exclusive track can play at a time
 
     @property
     def short_file_threshold(self) -> float:
@@ -128,12 +200,12 @@ class RecordingThemeInstance:
         else:
             return PlaybackMode.PRESENCE if self.presence < 1.0 else PlaybackMode.CONTINUOUS
 
-    def get_stream(self):
+    def get_stream(self, exclusion_coordinator: ExclusionGroupCoordinator = None):
         mode = self._resolve_playback_mode()
 
         # SPARSE: Play once at full volume, then silence for interval
         if mode == PlaybackMode.SPARSE:
-            return SparsePlaybackStream(self)
+            return SparsePlaybackStream(self, exclusion_coordinator)
 
         # CONTINUOUS or PRESENCE: Start with base looping stream
         if self.crossfade_enabled:
@@ -369,11 +441,16 @@ class SparsePlaybackStream:
     - presence=0.1: Interval is near max (~270 seconds average)
 
     The file plays once with fade in/out, then silence until next play.
+
+    If the track is marked as 'exclusive' and an ExclusionGroupCoordinator is
+    provided, only one exclusive track can play at a time. Other exclusive
+    tracks output silence until the playing track finishes.
     """
     CHUNK_SIZE = 1_024
 
-    def __init__(self, instance: RecordingThemeInstance):
+    def __init__(self, instance: RecordingThemeInstance, exclusion_coordinator: ExclusionGroupCoordinator = None):
         self.instance = instance
+        self.exclusion_coordinator = exclusion_coordinator
         self.gen = self._gen()
 
     def _gen(self):
@@ -381,12 +458,14 @@ class SparsePlaybackStream:
 
         presence = self.instance.presence
         file_duration_samples = self.instance.meta.duration_samples
+        file_duration_seconds = self.instance.meta.duration_seconds
 
-        logger.info(f'SparsePlaybackStream: {self.instance.name} - short file ({self.instance.meta.duration_seconds:.1f}s), using sparse playback')
+        logger.info(f'SparsePlaybackStream: {self.instance.name} - short file ({file_duration_seconds:.1f}s), using sparse playback' +
+                    (', exclusive=True' if self.instance.exclusive else ''))
 
         # Pre-generate fade curves for the short file
         # Use shorter fade for very short files
-        fade_duration = min(TRACK_FADE_DURATION, self.instance.meta.duration_seconds / 3)
+        fade_duration = min(TRACK_FADE_DURATION, file_duration_seconds / 3)
         fade_samples = int(fade_duration * SAMPLE_RATE)
         fade_in_curve = np.sin(np.linspace(0, np.pi/2, fade_samples)).astype(np.float32)
         fade_out_curve = np.cos(np.linspace(0, np.pi/2, fade_samples)).astype(np.float32)
@@ -428,12 +507,33 @@ class SparsePlaybackStream:
 
             return np.concatenate(samples)
 
+        def can_play_exclusive():
+            """Check if this exclusive track is allowed to play."""
+            if not self.instance.exclusive or self.exclusion_coordinator is None:
+                return True
+            return self.exclusion_coordinator.try_start_playing(
+                self.instance.name,
+                file_duration_seconds
+            )
+
+        def finish_exclusive():
+            """Mark that this exclusive track has finished."""
+            if self.instance.exclusive and self.exclusion_coordinator is not None:
+                self.exclusion_coordinator.finish_playing(self.instance.name)
+
         chunk_count = 0
         silence_chunk = np.zeros((1, self.CHUNK_SIZE), dtype=np.int16)
 
         while True:
             # Check for updated presence
             presence = self.instance.presence
+
+            # For exclusive tracks, check if we can play
+            if not can_play_exclusive():
+                # Blocked by another exclusive track - output one chunk of silence and retry
+                chunk_count += 1
+                yield silence_chunk
+                continue
 
             # Decode and play the file once with fade in/out
             audio_data = decode_file_once()
@@ -469,6 +569,9 @@ class SparsePlaybackStream:
 
                     yield output
                     pos += self.CHUNK_SIZE
+
+            # Mark exclusive track as finished playing
+            finish_exclusive()
 
             # Now output silence for the interval
             silent_samples = get_silent_interval()

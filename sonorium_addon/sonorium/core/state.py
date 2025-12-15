@@ -124,6 +124,11 @@ class SonoriumSettings:
     # Format: {"theme_id": {"track_name": true}} - only stores tracks with seamless enabled
     track_seamless_loop: dict[str, dict[str, bool]] = field(default_factory=dict)
 
+    # Per-track exclusive playback settings (mutual exclusion group)
+    # Format: {"theme_id": {"track_name": true}} - only stores tracks with exclusive enabled
+    # Tracks marked exclusive will not play simultaneously - only one can play at a time
+    track_exclusive: dict[str, dict[str, bool]] = field(default_factory=dict)
+
     # Plugin settings (keyed by plugin_id)
     # Format: {"ambient_mixer": {"download_path": "/media/sonorium", "auto_create_metadata": true}}
     plugin_settings: dict[str, dict] = field(default_factory=dict)
