@@ -1633,9 +1633,7 @@ class ApiSonorium(api.Base):
         }
 
     async def rename_theme(self, theme_id: str, request: Request):
-        """Rename a theme folder."""
-        import re
-
+        """Rename a theme (updates display name in metadata.json, not the folder)."""
         # Get new name from request body
         try:
             body = await request.json()
@@ -1646,69 +1644,32 @@ class ApiSonorium(api.Base):
         if not new_name:
             raise HTTPException(status_code=400, detail="Name is required")
 
-        # Find current theme folder
+        # Find current theme folder and metadata
         folder = self._find_theme_folder(theme_id)
         if not folder:
-            raise HTTPException(status_code=404, detail="Theme folder not found")
+            raise HTTPException(status_code=404, detail="Theme not found")
 
-        # Create new folder name (sanitize for filesystem)
-        new_folder_name = re.sub(r'[<>:"/\\|?*]', '', new_name)  # Remove invalid chars
-        new_folder_name = new_folder_name.strip()
-        if not new_folder_name:
-            raise HTTPException(status_code=400, detail="Invalid name")
+        if not self._theme_metadata_manager:
+            raise HTTPException(status_code=500, detail="Metadata manager not available")
 
-        # Check if new name already exists
-        new_path = folder.parent / new_folder_name
-        if new_path.exists() and new_path != folder:
-            raise HTTPException(status_code=409, detail="A theme with that name already exists")
+        metadata = self._theme_metadata_manager.get_metadata_by_folder(folder)
+        if not metadata:
+            raise HTTPException(status_code=404, detail="Theme metadata not found")
 
-        # Rename the folder
-        try:
-            folder.rename(new_path)
-            logger.info(f"Renamed theme folder: {folder} -> {new_path}")
-        except Exception as e:
-            logger.error(f"Failed to rename theme folder: {e}")
-            raise HTTPException(status_code=500, detail=f"Failed to rename: {e}")
+        old_name = metadata.name
 
-        # Generate new theme_id (same logic as theme loading uses)
-        new_theme_id = ''.join(c for c in new_folder_name.lower() if c.isalnum())
+        # Update the name in metadata.json (folder stays the same)
+        metadata.name = new_name
+        if not self._theme_metadata_manager.save_metadata(metadata.id, metadata):
+            raise HTTPException(status_code=500, detail="Failed to save metadata")
 
-        # Update state references from old theme_id to new theme_id
-        if self._state_store:
-            settings = self._state_store.settings
-
-            # Update favorite_themes
-            if theme_id in settings.favorite_themes:
-                settings.favorite_themes.remove(theme_id)
-                settings.favorite_themes.append(new_theme_id)
-                logger.info(f"Updated favorite from {theme_id} to {new_theme_id}")
-
-            # Update theme_category_assignments
-            if theme_id in settings.theme_category_assignments:
-                settings.theme_category_assignments[new_theme_id] = settings.theme_category_assignments.pop(theme_id)
-                logger.info(f"Updated category assignments from {theme_id} to {new_theme_id}")
-
-            # Update track_presence
-            if theme_id in settings.track_presence:
-                settings.track_presence[new_theme_id] = settings.track_presence.pop(theme_id)
-                logger.info(f"Updated track_presence from {theme_id} to {new_theme_id}")
-
-            # Update track_muted
-            if theme_id in settings.track_muted:
-                settings.track_muted[new_theme_id] = settings.track_muted.pop(theme_id)
-                logger.info(f"Updated track_muted from {theme_id} to {new_theme_id}")
-
-            # Save state
-            self._state_store.save()
-
-        # Refresh themes to pick up the change
-        await self.refresh_themes()
+        logger.info(f"Renamed theme '{old_name}' to '{new_name}' (folder: {folder.name})")
 
         return {
             "status": "ok",
-            "old_name": folder.name,
-            "new_name": new_folder_name,
-            "new_theme_id": new_theme_id,
+            "old_name": old_name,
+            "new_name": new_name,
+            "theme_id": metadata.id,  # UUID stays the same
         }
 
     async def rename_preset(self, theme_id: str, preset_id: str, request: Request):
