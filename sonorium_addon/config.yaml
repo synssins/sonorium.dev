@@ -1,5 +1,5 @@
 name: Sonorium Dev
-version: "1.1.43-dev"
+version: "1.1.44-dev"
 slug: sonorium_dev
 description: "Sonorium development build - Track presence control and experimental features"
 url: https://github.com/synssins/sonorium-dev

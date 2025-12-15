@@ -1685,19 +1685,27 @@ class ApiSonorium(api.Base):
         }
 
     async def toggle_favorite(self, theme_id: str):
-        """Toggle favorite status for a theme."""
-        if not self._state_store:
-            return {"error": "State not available"}
+        """Toggle favorite status for a theme (stored in metadata.json)."""
+        # Get the theme folder using UUID-aware lookup
+        theme_folder = self._find_theme_folder(theme_id)
+        if not theme_folder:
+            return {"error": "Theme not found"}
 
-        favorites = self._state_store.settings.favorite_themes
-        if theme_id in favorites:
-            favorites.remove(theme_id)
-            is_favorite = False
-        else:
-            favorites.append(theme_id)
-            is_favorite = True
+        # Read current metadata
+        metadata = self._read_theme_metadata(theme_id)
+        is_favorite = not metadata.get("is_favorite", False)
+        metadata["is_favorite"] = is_favorite
 
-        self._state_store.save()
+        # Save to metadata.json
+        if not self._write_theme_metadata(theme_id, metadata):
+            return {"error": "Failed to save favorite status"}
+
+        # Also update the metadata manager cache if available
+        if self._theme_metadata_manager:
+            cached_metadata = self._theme_metadata_manager.get_metadata_by_folder(theme_folder)
+            if cached_metadata:
+                cached_metadata.is_favorite = is_favorite
+
         return {"theme_id": theme_id, "is_favorite": is_favorite}
 
     async def list_categories(self):
