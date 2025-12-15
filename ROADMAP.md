@@ -2,7 +2,7 @@
 
 This document outlines the planned features and development direction for Sonorium. Features are organized by priority and complexity.
 
-## Current State (v1.1.28-dev)
+## Current State (v1.1.52-dev)
 
 Sonorium is a fully functional multi-zone ambient soundscape mixer for Home Assistant with:
 
@@ -17,10 +17,36 @@ Sonorium is a fully functional multi-zone ambient soundscape mixer for Home Assi
 - **Playback modes** - Auto, Continuous, Sparse, and Presence modes for fine-tuned control
 - **Plugin system** - Extensible architecture with built-in Ambient Mixer importer
 - **Local browser preview** - Preview tracks and full themes directly in the browser
+- **Theme presets** - Save and load named track configurations per theme
+- **UUID-based theme identification** - Portable themes that survive folder renames
+- **Automatic theme cycling** - Rotate through themes on a configurable schedule
 
 ---
 
 ## Recently Completed
+
+### Theme Presets with Channel Support (v1.1.52-dev)
+- Save current track settings as named presets
+- Load, update, rename, delete, and export presets
+- Import presets via JSON for community sharing
+- Set default preset per theme (auto-loads when theme selected)
+- **Channel preset selection** - Select preset directly on channel cards
+- Presets persist in theme's metadata.json (portable with theme)
+- Preset changes apply immediately to playing channels
+
+### UUID-Based Theme Identification (v1.1.52-dev)
+- Themes identified by persistent UUID stored in metadata.json
+- Themes survive folder renames - all settings follow the theme
+- Favorites, categories, track settings, and presets stored per-theme
+- Portable theme packages that work across installations
+
+### Automatic Theme Cycling (v1.1.40-dev)
+- Per-channel cycling configuration with enable/disable toggle
+- Configurable interval (minutes between theme changes)
+- Sequential or random theme selection modes
+- Optional category filter (cycle only within specific categories)
+- Smooth crossfade transitions between themes
+- Cycle resets when theme is manually changed
 
 ### Home Assistant Entity Integration (v1.1.28-dev)
 - Custom integration exposes channels as `media_player` entities
@@ -62,26 +88,6 @@ Per-track "presence" setting (0-100%) that controls how often a track appears in
 ---
 
 ## Near-Term Goals
-
-### Theme Presets
-
-**Goal:** Save and restore named configurations of theme settings.
-
-**Features:**
-- Named presets storing all adjustable settings (layers, volumes, mix, playback modes)
-- Global to theme (not zone-specific)
-- Operations: save current as new preset, select preset, delete preset
-- Default preset flag (auto-loads when theme first selected)
-- State persistence across reboots/upgrades
-- UI: Preset dropdown in channel playback, beneath theme selector
-- Separate field/modal for pasting preset JSON into existing themes
-- Validate pasted JSON: fail gracefully with clear message if references non-existent layers/settings
-- Copy/paste JSON friendly for community sharing (forums, Reddit)
-
-**Use Cases:**
-- "Sleep" preset with lower volumes and sparse presence
-- "Focus" preset with continuous background layers
-- Share preset configurations with the community
 
 ### Theme Export/Import
 
@@ -135,24 +141,6 @@ Per-track "presence" setting (0-100%) that controls how often a track appears in
 - See full track names without truncation
 - Quickly compare settings across tracks
 - More intuitive control layout
-
-### Automatic Theme Cycling
-
-**Goal:** Automatically rotate through themes on a schedule.
-
-**Features:**
-- Per-channel cycling configuration
-- Configurable interval (e.g., change theme every 30 minutes)
-- Two modes:
-  - **Sequential**: Cycle through themes in order
-  - **Random**: Pick themes randomly
-- Optional theme playlist: specify which themes to cycle through
-- Smooth transitions between themes during cycling
-
-**Use Cases:**
-- Variety during long work sessions
-- Different ambient sounds throughout the day
-- Randomized nature sounds for meditation
 
 ### Auto-Refresh After Plugin Import
 

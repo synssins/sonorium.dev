@@ -10,6 +10,31 @@ Sonorium lets you create immersive ambient audio environments throughout your ho
 
 ## What's New in v1.1
 
+### Theme Presets (v1.1.52)
+Save and load named track configurations for each theme:
+
+- **Save/Load Presets** - Store current track settings (volume, presence, playback mode, enabled/disabled) as named presets
+- **Channel Preset Selection** - Select presets directly on channel cards—no need to open the theme editor
+- **Update Existing Presets** - Modify settings and save back to the same preset
+- **Import/Export** - Share presets as JSON with the community
+- **Default Preset** - Set a preset to auto-load when theme is selected
+
+### Automatic Theme Cycling (v1.1.40)
+Automatically rotate through themes on a schedule:
+
+- **Per-Channel Cycling** - Enable cycling independently for each channel
+- **Configurable Interval** - Set how often to change themes (in minutes)
+- **Selection Modes** - Sequential order or random selection
+- **Category Filter** - Optionally cycle only within specific categories
+- **Smooth Transitions** - Crossfade between themes during cycling
+
+### UUID-Based Theme Identification (v1.1.52)
+Themes now have persistent identifiers stored in metadata.json:
+
+- **Portable Themes** - Rename folders without losing settings
+- **All Settings Travel** - Favorites, categories, presets, and track settings stay with the theme
+- **Cross-Installation** - Theme packages work across different Sonorium installations
+
 ### Track Mixer with Advanced Controls
 Fine-tune how each audio file plays within a theme:
 
@@ -20,6 +45,13 @@ Fine-tune how each audio file plays within a theme:
   - **Continuous** - Loop continuously with seamless crossfade
   - **Sparse** - Play once at full volume, then wait before repeating (great for short sounds like bird calls or thunder claps)
   - **Presence** - Fade in/out based on presence setting
+
+### Plugin System (v1.1.28)
+Extend Sonorium with plugins:
+
+- **Ambient Mixer Importer** - Import soundscapes from ambient-mixer.com
+- **Plugin Management** - Enable/disable plugins from Settings
+- **Extensible Architecture** - Developers can create custom plugins
 
 ### Broadcast Audio Model
 Rewrote channel streaming to use a radio-station model. All speakers tuned to the same channel hear the exact same audio stream, joining mid-stream rather than starting their own independent playback.
