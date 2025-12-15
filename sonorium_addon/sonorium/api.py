@@ -922,7 +922,8 @@ class ApiSonorium(api.Base):
 
     async def get_theme(self, theme_id: str):
         """Get theme details."""
-        theme = self.client.device.themes.id.get(theme_id)
+        # Use _get_theme_by_id to handle both UUID-based and folder-based IDs
+        theme, _ = self._get_theme_by_id(theme_id)
         if not theme:
             return {"error": "Theme not found"}
 
@@ -984,7 +985,8 @@ class ApiSonorium(api.Base):
         # URL decode the track name
         track_name = unquote(track_name)
 
-        theme = self.client.device.themes.id.get(theme_id)
+        # Use _get_theme_by_id to handle both UUID-based and folder-based IDs
+        theme, _ = self._get_theme_by_id(theme_id)
         if not theme:
             raise HTTPException(status_code=404, detail="Theme not found")
 
@@ -1029,18 +1031,10 @@ class ApiSonorium(api.Base):
         - 0.5 = plays about half the time
         - 0.0 = never plays (disabled)
         """
-        theme = self.client.device.themes.id.get(theme_id)
+        # Use _get_theme_by_id to handle both UUID-based and folder-based IDs
+        theme, _ = self._get_theme_by_id(theme_id)
         if not theme:
-            # Try finding by metadata ID
-            theme_folder = self._find_theme_folder(theme_id)
-            if theme_folder:
-                # Find matching theme by folder name
-                for t in self.client.device.themes:
-                    if t.name == theme_folder.name:
-                        theme = t
-                        break
-            if not theme:
-                return {"error": "Theme not found"}
+            return {"error": "Theme not found"}
 
         try:
             body = await request.json()
@@ -1304,7 +1298,8 @@ class ApiSonorium(api.Base):
 
     def _get_current_track_settings(self, theme_id: str) -> dict:
         """Get current track settings for a theme as a preset-compatible dict."""
-        theme = self.client.device.themes.id.get(theme_id)
+        # Use _get_theme_by_id to handle both UUID-based and folder-based IDs
+        theme, _ = self._get_theme_by_id(theme_id)
         if not theme:
             return {}
 
@@ -1324,7 +1319,8 @@ class ApiSonorium(api.Base):
         """Apply preset track settings to a theme. Returns True on success."""
         from sonorium.recording import PlaybackMode
 
-        theme = self.client.device.themes.id.get(theme_id)
+        # Use _get_theme_by_id to handle both UUID-based and folder-based IDs
+        theme, theme_folder = self._get_theme_by_id(theme_id)
         if not theme:
             return False
 
@@ -1343,38 +1339,21 @@ class ApiSonorium(api.Base):
                 inst.exclusive = settings.get("exclusive", False)
                 inst.is_enabled = not settings.get("muted", False)
 
-        # Persist to state store
-        if self._state_store:
-            # Build dicts for state storage
-            presence_dict = {}
-            muted_dict = {}
-            volume_dict = {}
-            playback_mode_dict = {}
-            seamless_loop_dict = {}
-            exclusive_dict = {}
+        # Persist to metadata.json
+        if self._theme_metadata_manager and theme_folder:
+            metadata = self._theme_metadata_manager.get_metadata_by_folder(theme_folder)
+            if metadata:
+                # Update track settings in metadata
+                for track_name, settings in preset_tracks.items():
+                    track_settings = metadata.get_track_settings(track_name)
+                    track_settings.presence = settings.get("presence", 1.0)
+                    track_settings.muted = settings.get("muted", False)
+                    track_settings.volume = settings.get("volume", 1.0)
+                    track_settings.playback_mode = settings.get("playback_mode", "auto")
+                    track_settings.seamless_loop = settings.get("seamless_loop", False)
+                    track_settings.exclusive = settings.get("exclusive", False)
 
-            for track_name, settings in preset_tracks.items():
-                if settings.get("presence", 1.0) != 1.0:
-                    presence_dict[track_name] = settings["presence"]
-                if settings.get("muted", False):
-                    muted_dict[track_name] = True
-                if settings.get("volume", 1.0) != 1.0:
-                    volume_dict[track_name] = settings["volume"]
-                if settings.get("playback_mode", "auto") != "auto":
-                    playback_mode_dict[track_name] = settings["playback_mode"]
-                if settings.get("seamless_loop", False):
-                    seamless_loop_dict[track_name] = True
-                if settings.get("exclusive", False):
-                    exclusive_dict[track_name] = True
-
-            # Update state
-            self._state_store.settings.track_presence[theme_id] = presence_dict
-            self._state_store.settings.track_muted[theme_id] = muted_dict
-            self._state_store.settings.track_volume[theme_id] = volume_dict
-            self._state_store.settings.track_playback_mode[theme_id] = playback_mode_dict
-            self._state_store.settings.track_seamless_loop[theme_id] = seamless_loop_dict
-            self._state_store.settings.track_exclusive[theme_id] = exclusive_dict
-            self._state_store.save()
+                self._theme_metadata_manager.save_metadata(metadata.id, metadata)
 
         return True
 
@@ -1398,7 +1377,8 @@ class ApiSonorium(api.Base):
         """Create a new preset from current track settings."""
         import re
 
-        theme = self.client.device.themes.id.get(theme_id)
+        # Use _get_theme_by_id to handle both UUID-based and folder-based IDs
+        theme, _ = self._get_theme_by_id(theme_id)
         if not theme:
             raise HTTPException(status_code=404, detail="Theme not found")
 
@@ -1516,7 +1496,8 @@ class ApiSonorium(api.Base):
         import json
         import re
 
-        theme = self.client.device.themes.id.get(theme_id)
+        # Use _get_theme_by_id to handle both UUID-based and folder-based IDs
+        theme, _ = self._get_theme_by_id(theme_id)
         if not theme:
             raise HTTPException(status_code=404, detail="Theme not found")
 
