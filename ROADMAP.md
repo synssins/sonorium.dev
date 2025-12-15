@@ -19,7 +19,6 @@ Sonorium is a fully functional multi-zone ambient soundscape mixer for Home Assi
 - **Local browser preview** - Preview tracks and full themes directly in the browser
 - **Theme presets** - Save and load named track configurations per theme
 - **UUID-based theme identification** - Portable themes that survive folder renames
-- **Automatic theme cycling** - Rotate through themes on a configurable schedule
 
 ---
 
@@ -39,14 +38,6 @@ Sonorium is a fully functional multi-zone ambient soundscape mixer for Home Assi
 - Themes survive folder renames - all settings follow the theme
 - Favorites, categories, track settings, and presets stored per-theme
 - Portable theme packages that work across installations
-
-### Automatic Theme Cycling (v1.1.40-dev)
-- Per-channel cycling configuration with enable/disable toggle
-- Configurable interval (minutes between theme changes)
-- Sequential or random theme selection modes
-- Optional category filter (cycle only within specific categories)
-- Smooth crossfade transitions between themes
-- Cycle resets when theme is manually changed
 
 ### Home Assistant Entity Integration (v1.1.28-dev)
 - Custom integration exposes channels as `media_player` entities
@@ -88,6 +79,24 @@ Per-track "presence" setting (0-100%) that controls how often a track appears in
 ---
 
 ## Near-Term Goals
+
+### Automatic Theme Cycling
+
+**Goal:** Automatically rotate through themes on a schedule.
+
+**Features:**
+- Per-channel cycling configuration
+- Configurable interval (e.g., change theme every 30 minutes)
+- Two modes:
+  - **Sequential**: Cycle through themes in order
+  - **Random**: Pick themes randomly
+- Optional category filter: cycle only within specific categories
+- Smooth crossfade transitions between themes during cycling
+
+**Use Cases:**
+- Variety during long work sessions
+- Different ambient sounds throughout the day
+- Randomized nature sounds for meditation
 
 ### Theme Export/Import
 

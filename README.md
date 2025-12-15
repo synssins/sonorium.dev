@@ -19,15 +19,6 @@ Save and load named track configurations for each theme:
 - **Import/Export** - Share presets as JSON with the community
 - **Default Preset** - Set a preset to auto-load when theme is selected
 
-### Automatic Theme Cycling (v1.1.40)
-Automatically rotate through themes on a schedule:
-
-- **Per-Channel Cycling** - Enable cycling independently for each channel
-- **Configurable Interval** - Set how often to change themes (in minutes)
-- **Selection Modes** - Sequential order or random selection
-- **Category Filter** - Optionally cycle only within specific categories
-- **Smooth Transitions** - Crossfade between themes during cycling
-
 ### UUID-Based Theme Identification (v1.1.52)
 Themes now have persistent identifiers stored in metadata.json:
 
