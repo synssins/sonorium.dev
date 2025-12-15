@@ -500,7 +500,14 @@ class ApiSonorium(api.Base):
 
     def _find_theme_folder(self, theme_id: str) -> Path | None:
         """Find theme folder by ID, handling sanitized names."""
-        media_paths = [Path("/media/sonorium"), Path("/share/sonorium")]
+        # Get the actual audio path from device
+        device = self.client.device
+        if device and hasattr(device, 'path_audio'):
+            media_paths = [device.path_audio]
+        else:
+            # Fallback to common paths
+            media_paths = [Path("/media/sonorium"), Path("/share/sonorium")]
+
         for mp in media_paths:
             if not mp.exists():
                 continue
@@ -537,14 +544,18 @@ class ApiSonorium(api.Base):
         """Write metadata.json to theme folder. Returns True on success."""
         import json
         folder = self._find_theme_folder(theme_id)
-        if folder:
-            meta_path = folder / "metadata.json"
-            try:
-                meta_path.write_text(json.dumps(metadata, indent=2))
-                return True
-            except Exception as e:
-                logger.error(f"Failed to write metadata for theme {theme_id}: {e}")
-        return False
+        if not folder:
+            logger.error(f"Cannot write metadata: theme folder not found for '{theme_id}'")
+            return False
+
+        meta_path = folder / "metadata.json"
+        try:
+            meta_path.write_text(json.dumps(metadata, indent=2))
+            logger.info(f"Wrote metadata to {meta_path}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to write metadata for theme {theme_id}: {e}")
+            return False
 
     async def list_themes(self):
         """List all available themes with full metadata."""
