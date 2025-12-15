@@ -1562,9 +1562,8 @@ class ApiSonorium(api.Base):
         new_theme_id = ''.join(c for c in new_folder_name.lower() if c.isalnum())
 
         # Update state references from old theme_id to new theme_id
-        state = self.client.state
-        if state and state.settings:
-            settings = state.settings
+        if self._state_store:
+            settings = self._state_store.settings
 
             # Update favorite_themes
             if theme_id in settings.favorite_themes:
@@ -1588,7 +1587,7 @@ class ApiSonorium(api.Base):
                 logger.info(f"Updated track_muted from {theme_id} to {new_theme_id}")
 
             # Save state
-            state.save()
+            self._state_store.save()
 
         # Refresh themes to pick up the change
         await self.refresh_themes()
