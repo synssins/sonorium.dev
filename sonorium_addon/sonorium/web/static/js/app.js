@@ -1721,12 +1721,14 @@ async function onPresetSelectChange(presetId) {
     const renameBtn = document.getElementById('preset-rename-btn');
     const deleteBtn = document.getElementById('preset-delete-btn');
     const exportBtn = document.getElementById('preset-export-btn');
+    const updateBtn = document.getElementById('preset-update-btn');
 
     if (presetId) {
         defaultBtn.style.display = '';
         renameBtn.style.display = '';
         deleteBtn.style.display = '';
         exportBtn.style.display = '';
+        updateBtn.style.display = '';
 
         // Auto-load the preset when selected
         if (currentTrackMixerThemeId) {
@@ -1745,6 +1747,7 @@ async function onPresetSelectChange(presetId) {
         renameBtn.style.display = 'none';
         deleteBtn.style.display = 'none';
         exportBtn.style.display = 'none';
+        updateBtn.style.display = 'none';
     }
 }
 
@@ -1805,6 +1808,31 @@ async function deleteSelectedPreset() {
     } catch (error) {
         console.error('Failed to delete preset:', error);
         showToast('Failed to delete preset', 'error');
+    }
+}
+
+async function updateSelectedPreset() {
+    const select = document.getElementById('preset-select');
+    const presetId = select.value;
+
+    if (!presetId) {
+        showToast('Select a preset first', 'warning');
+        return;
+    }
+
+    if (!currentTrackMixerThemeId) return;
+
+    const preset = currentPresets.find(p => p.id === presetId);
+    const presetName = preset?.name || presetId;
+
+    if (!confirm(`Update preset "${presetName}" with current track settings?`)) return;
+
+    try {
+        const result = await api('PUT', `/themes/${currentTrackMixerThemeId}/presets/${presetId}`);
+        showToast(`Updated preset: ${result.name} (${result.tracks_updated} tracks)`, 'success');
+    } catch (error) {
+        console.error('Failed to update preset:', error);
+        showToast('Failed to update preset', 'error');
     }
 }
 

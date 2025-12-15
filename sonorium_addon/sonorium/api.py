@@ -106,6 +106,7 @@ class ApiSonorium(api.Base):
             api.Endpoint(method_http=self.app.get, path='/api/themes/{theme_id}/presets', method=self.list_presets),
             api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/presets', method=self.create_preset),
             api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/presets/{preset_id}/load', method=self.load_preset),
+            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/presets/{preset_id}', method=self.update_preset),
             api.Endpoint(method_http=self.app.delete, path='/api/themes/{theme_id}/presets/{preset_id}', method=self.delete_preset),
             api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/presets/{preset_id}/default', method=self.set_default_preset),
             api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/presets/{preset_id}/rename', method=self.rename_preset),
@@ -1449,6 +1450,36 @@ class ApiSonorium(api.Base):
             "preset_id": preset_id,
             "name": preset.get("name", preset_id),
             "tracks_applied": len(tracks),
+        }
+
+    async def update_preset(self, theme_id: str, preset_id: str):
+        """Update an existing preset with current track settings."""
+        # Use _get_theme_by_id to handle both UUID-based and folder-based IDs
+        theme, _ = self._get_theme_by_id(theme_id)
+        if not theme:
+            raise HTTPException(status_code=404, detail="Theme not found")
+
+        metadata = self._read_theme_metadata(theme_id)
+        presets = metadata.get("presets", {})
+
+        if preset_id not in presets:
+            raise HTTPException(status_code=404, detail="Preset not found")
+
+        # Capture current settings
+        tracks = self._get_current_track_settings(theme_id)
+
+        # Update the preset's tracks while preserving name and is_default
+        presets[preset_id]["tracks"] = tracks
+
+        metadata["presets"] = presets
+        if not self._write_theme_metadata(theme_id, metadata):
+            raise HTTPException(status_code=500, detail="Failed to update preset")
+
+        return {
+            "status": "ok",
+            "preset_id": preset_id,
+            "name": presets[preset_id].get("name", preset_id),
+            "tracks_updated": len(tracks),
         }
 
     async def delete_preset(self, theme_id: str, preset_id: str):
