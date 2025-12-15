@@ -242,6 +242,29 @@
                                         Reset All
                                     </button>
                                 </div>
+                                <!-- Preset Bar -->
+                                <div class="preset-bar">
+                                    <div class="preset-select-group">
+                                        <label for="preset-select">Preset:</label>
+                                        <select id="preset-select" onchange="onPresetSelectChange(this.value)">
+                                            <option value="">-- Current Settings --</option>
+                                        </select>
+                                        <button class="btn btn-sm btn-icon" onclick="loadSelectedPreset()" title="Load preset">
+                                            <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></svg>
+                                        </button>
+                                        <button class="btn btn-sm btn-icon" onclick="setPresetAsDefault()" title="Set as default" id="preset-default-btn" style="display: none;">
+                                            <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>
+                                        </button>
+                                        <button class="btn btn-sm btn-icon btn-danger" onclick="deleteSelectedPreset()" title="Delete preset" id="preset-delete-btn" style="display: none;">
+                                            <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+                                        </button>
+                                    </div>
+                                    <div class="preset-actions">
+                                        <button class="btn btn-sm btn-secondary" onclick="saveCurrentAsPreset()">Save As...</button>
+                                        <button class="btn btn-sm btn-secondary" onclick="showImportPresetModal()">Import</button>
+                                        <button class="btn btn-sm btn-secondary" onclick="exportSelectedPreset()" id="preset-export-btn" style="display: none;">Export</button>
+                                    </div>
+                                </div>
                                 <div id="track-mixer-list" class="track-list">
                                     <div class="track-mixer-empty">Loading tracks...</div>
                                 </div>
@@ -359,6 +382,85 @@
                     <div class="modal-footer">
                         <button class="btn btn-secondary" onclick="closeCategoryCreateModal()">Cancel</button>
                         <button class="btn btn-primary" onclick="createCategory()">Create Category</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Preset Import Modal -->
+            <div id="preset-import-modal" class="modal-backdrop" onclick="if(event.target===this) closeImportPresetModal()">
+                <div class="modal" style="max-width: 600px;">
+                    <div class="modal-header">
+                        <h3>Import Preset</h3>
+                        <button class="modal-close" onclick="closeImportPresetModal()">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="theme-create-form">
+                            <div>
+                                <label for="preset-import-name">Preset Name</label>
+                                <input type="text" id="preset-import-name" placeholder="e.g., Sleep Mode, Focus Mix...">
+                            </div>
+                            <div>
+                                <label for="preset-import-json">Preset JSON *</label>
+                                <textarea id="preset-import-json" rows="10" placeholder='Paste preset JSON here...
+Example:
+{
+  "name": "Sleep Mode",
+  "tracks": {
+    "rain.mp3": {"volume": 0.8, "presence": 1.0},
+    "thunder.mp3": {"volume": 0.3, "presence": 0.2}
+  }
+}'></textarea>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-secondary" onclick="closeImportPresetModal()">Cancel</button>
+                        <button class="btn btn-primary" onclick="importPreset()">Import</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Preset Export Modal -->
+            <div id="preset-export-modal" class="modal-backdrop" onclick="if(event.target===this) closeExportPresetModal()">
+                <div class="modal" style="max-width: 600px;">
+                    <div class="modal-header">
+                        <h3>Export Preset</h3>
+                        <button class="modal-close" onclick="closeExportPresetModal()">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="theme-create-form">
+                            <div>
+                                <label>Preset JSON</label>
+                                <textarea id="preset-export-json" rows="12" readonly style="font-family: monospace; font-size: 0.8rem;"></textarea>
+                            </div>
+                            <p style="font-size: 0.8rem; color: var(--text-muted);">Copy this JSON to share with others or import into another theme.</p>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-secondary" onclick="closeExportPresetModal()">Close</button>
+                        <button class="btn btn-primary" onclick="copyPresetJson()">Copy to Clipboard</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Preset Save Modal -->
+            <div id="preset-save-modal" class="modal-backdrop" onclick="if(event.target===this) closePresetSaveModal()">
+                <div class="modal" style="max-width: 400px;">
+                    <div class="modal-header">
+                        <h3>Save Preset</h3>
+                        <button class="modal-close" onclick="closePresetSaveModal()">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="theme-create-form">
+                            <div>
+                                <label for="preset-save-name">Preset Name *</label>
+                                <input type="text" id="preset-save-name" placeholder="e.g., Sleep Mode, Focus Mix...">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-secondary" onclick="closePresetSaveModal()">Cancel</button>
+                        <button class="btn btn-primary" onclick="confirmSavePreset()">Save</button>
                     </div>
                 </div>
             </div>

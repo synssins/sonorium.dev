@@ -1124,6 +1124,13 @@ async function loadTrackMixer(themeId) {
     const container = document.getElementById('track-mixer-list');
     container.innerHTML = '<div class="track-mixer-empty">Loading tracks...</div>';
 
+    // Load presets for this theme
+    loadPresets(themeId);
+    // Reset preset dropdown selection
+    const presetSelect = document.getElementById('preset-select');
+    if (presetSelect) presetSelect.value = '';
+    onPresetSelectChange('');
+
     try {
         const result = await api('GET', `/themes/${themeId}/tracks`);
         if (result.error) {
@@ -1333,6 +1340,226 @@ async function setTrackExclusive(trackName, exclusive) {
     } catch (error) {
         console.error('Failed to set exclusive:', error);
         showToast('Failed to set exclusive', 'error');
+    }
+}
+
+// ============================================
+// Preset Functions
+// ============================================
+
+let currentPresets = [];
+
+async function loadPresets(themeId) {
+    try {
+        const result = await api('GET', `/themes/${themeId}/presets`);
+        currentPresets = result.presets || [];
+        updatePresetDropdown();
+    } catch (error) {
+        console.error('Failed to load presets:', error);
+        currentPresets = [];
+        updatePresetDropdown();
+    }
+}
+
+function updatePresetDropdown() {
+    const select = document.getElementById('preset-select');
+    if (!select) return;
+
+    // Keep the default option
+    select.innerHTML = '<option value="">-- Current Settings --</option>';
+
+    // Add presets
+    currentPresets.forEach(preset => {
+        const option = document.createElement('option');
+        option.value = preset.id;
+        option.textContent = preset.name + (preset.is_default ? ' ★' : '');
+        select.appendChild(option);
+    });
+}
+
+function onPresetSelectChange(presetId) {
+    const defaultBtn = document.getElementById('preset-default-btn');
+    const deleteBtn = document.getElementById('preset-delete-btn');
+    const exportBtn = document.getElementById('preset-export-btn');
+
+    if (presetId) {
+        defaultBtn.style.display = '';
+        deleteBtn.style.display = '';
+        exportBtn.style.display = '';
+    } else {
+        defaultBtn.style.display = 'none';
+        deleteBtn.style.display = 'none';
+        exportBtn.style.display = 'none';
+    }
+}
+
+async function loadSelectedPreset() {
+    const select = document.getElementById('preset-select');
+    const presetId = select.value;
+
+    if (!presetId) {
+        showToast('Select a preset first', 'warning');
+        return;
+    }
+
+    if (!currentTrackMixerThemeId) return;
+
+    try {
+        const result = await api('POST', `/themes/${currentTrackMixerThemeId}/presets/${presetId}/load`);
+        showToast(`Loaded preset: ${result.name}`, 'success');
+        // Reload track mixer to show new settings
+        await loadTrackMixer(currentTrackMixerThemeId);
+    } catch (error) {
+        console.error('Failed to load preset:', error);
+        showToast('Failed to load preset', 'error');
+    }
+}
+
+async function setPresetAsDefault() {
+    const select = document.getElementById('preset-select');
+    const presetId = select.value;
+
+    if (!presetId || !currentTrackMixerThemeId) return;
+
+    try {
+        await api('PUT', `/themes/${currentTrackMixerThemeId}/presets/${presetId}/default`);
+        showToast('Set as default preset', 'success');
+        await loadPresets(currentTrackMixerThemeId);
+        select.value = presetId;
+        onPresetSelectChange(presetId);
+    } catch (error) {
+        console.error('Failed to set default preset:', error);
+        showToast('Failed to set default preset', 'error');
+    }
+}
+
+async function deleteSelectedPreset() {
+    const select = document.getElementById('preset-select');
+    const presetId = select.value;
+
+    if (!presetId || !currentTrackMixerThemeId) return;
+
+    const preset = currentPresets.find(p => p.id === presetId);
+    if (!confirm(`Delete preset "${preset?.name || presetId}"?`)) return;
+
+    try {
+        await api('DELETE', `/themes/${currentTrackMixerThemeId}/presets/${presetId}`);
+        showToast('Preset deleted', 'success');
+        await loadPresets(currentTrackMixerThemeId);
+        onPresetSelectChange('');
+    } catch (error) {
+        console.error('Failed to delete preset:', error);
+        showToast('Failed to delete preset', 'error');
+    }
+}
+
+function saveCurrentAsPreset() {
+    document.getElementById('preset-save-name').value = '';
+    document.getElementById('preset-save-modal').style.display = 'flex';
+}
+
+function closePresetSaveModal() {
+    document.getElementById('preset-save-modal').style.display = 'none';
+}
+
+async function confirmSavePreset() {
+    const name = document.getElementById('preset-save-name').value.trim();
+
+    if (!name) {
+        showToast('Please enter a preset name', 'warning');
+        return;
+    }
+
+    if (!currentTrackMixerThemeId) return;
+
+    try {
+        const result = await api('POST', `/themes/${currentTrackMixerThemeId}/presets`, { name });
+        showToast(`Saved preset: ${result.name}`, 'success');
+        closePresetSaveModal();
+        await loadPresets(currentTrackMixerThemeId);
+        // Select the new preset
+        const select = document.getElementById('preset-select');
+        select.value = result.preset_id;
+        onPresetSelectChange(result.preset_id);
+    } catch (error) {
+        console.error('Failed to save preset:', error);
+        showToast('Failed to save preset', 'error');
+    }
+}
+
+function showImportPresetModal() {
+    document.getElementById('preset-import-name').value = '';
+    document.getElementById('preset-import-json').value = '';
+    document.getElementById('preset-import-modal').style.display = 'flex';
+}
+
+function closeImportPresetModal() {
+    document.getElementById('preset-import-modal').style.display = 'none';
+}
+
+async function importPreset() {
+    const name = document.getElementById('preset-import-name').value.trim();
+    const jsonText = document.getElementById('preset-import-json').value.trim();
+
+    if (!jsonText) {
+        showToast('Please paste preset JSON', 'warning');
+        return;
+    }
+
+    if (!currentTrackMixerThemeId) return;
+
+    try {
+        const result = await api('POST', `/themes/${currentTrackMixerThemeId}/presets/import`, {
+            preset_json: jsonText,
+            name: name || null
+        });
+
+        let message = `Imported preset: ${result.name}`;
+        if (result.warning) {
+            message += ` (${result.warning})`;
+        }
+        showToast(message, 'success');
+        closeImportPresetModal();
+        await loadPresets(currentTrackMixerThemeId);
+    } catch (error) {
+        console.error('Failed to import preset:', error);
+        const detail = error.message || 'Invalid preset JSON';
+        showToast(`Import failed: ${detail}`, 'error');
+    }
+}
+
+async function exportSelectedPreset() {
+    const select = document.getElementById('preset-select');
+    const presetId = select.value;
+
+    if (!presetId || !currentTrackMixerThemeId) {
+        showToast('Select a preset first', 'warning');
+        return;
+    }
+
+    try {
+        const result = await api('GET', `/themes/${currentTrackMixerThemeId}/presets/${presetId}/export`);
+        const jsonText = JSON.stringify(result, null, 2);
+        document.getElementById('preset-export-json').value = jsonText;
+        document.getElementById('preset-export-modal').style.display = 'flex';
+    } catch (error) {
+        console.error('Failed to export preset:', error);
+        showToast('Failed to export preset', 'error');
+    }
+}
+
+function closeExportPresetModal() {
+    document.getElementById('preset-export-modal').style.display = 'none';
+}
+
+async function copyPresetJson() {
+    const jsonText = document.getElementById('preset-export-json').value;
+    try {
+        await navigator.clipboard.writeText(jsonText);
+        showToast('Copied to clipboard', 'success');
+    } catch (error) {
+        console.error('Failed to copy:', error);
+        showToast('Failed to copy to clipboard', 'error');
     }
 }
 

@@ -98,6 +98,15 @@ class ApiSonorium(api.Base):
             api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name}/exclusive', method=self.set_track_exclusive),
             api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/tracks/reset', method=self.reset_theme_tracks),
 
+            # Preset API
+            api.Endpoint(method_http=self.app.get, path='/api/themes/{theme_id}/presets', method=self.list_presets),
+            api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/presets', method=self.create_preset),
+            api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/presets/{preset_id}/load', method=self.load_preset),
+            api.Endpoint(method_http=self.app.delete, path='/api/themes/{theme_id}/presets/{preset_id}', method=self.delete_preset),
+            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/presets/{preset_id}/default', method=self.set_default_preset),
+            api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/presets/import', method=self.import_preset),
+            api.Endpoint(method_http=self.app.get, path='/api/themes/{theme_id}/presets/{preset_id}/export', method=self.export_preset),
+
             # Category API
             api.Endpoint(method_http=self.app.get, path='/api/categories', method=self.list_categories),
             api.Endpoint(method_http=self.app.post, path='/api/categories', method=self.create_category),
@@ -523,6 +532,19 @@ class ApiSonorium(api.Base):
                 except Exception:
                     pass
         return {}
+
+    def _write_theme_metadata(self, theme_id: str, metadata: dict) -> bool:
+        """Write metadata.json to theme folder. Returns True on success."""
+        import json
+        folder = self._find_theme_folder(theme_id)
+        if folder:
+            meta_path = folder / "metadata.json"
+            try:
+                meta_path.write_text(json.dumps(metadata, indent=2))
+                return True
+            except Exception as e:
+                logger.error(f"Failed to write metadata for theme {theme_id}: {e}")
+        return False
 
     async def list_themes(self):
         """List all available themes with full metadata."""
@@ -1145,6 +1167,323 @@ class ApiSonorium(api.Base):
         self._state_store.save()
 
         return {"status": "ok", "theme_id": theme_id}
+
+    # ==================== Preset API ====================
+
+    def _get_current_track_settings(self, theme_id: str) -> dict:
+        """Get current track settings for a theme as a preset-compatible dict."""
+        theme = self.client.device.themes.id.get(theme_id)
+        if not theme:
+            return {}
+
+        tracks = {}
+        for inst in theme.instances:
+            tracks[inst.name] = {
+                "volume": inst.volume,
+                "presence": inst.presence,
+                "playback_mode": inst.playback_mode.value if hasattr(inst.playback_mode, 'value') else str(inst.playback_mode),
+                "seamless_loop": not inst.crossfade_enabled,
+                "exclusive": inst.exclusive,
+                "muted": not inst.is_enabled,
+            }
+        return tracks
+
+    def _apply_preset_to_theme(self, theme_id: str, preset_tracks: dict) -> bool:
+        """Apply preset track settings to a theme. Returns True on success."""
+        from sonorium.recording import PlaybackMode
+
+        theme = self.client.device.themes.id.get(theme_id)
+        if not theme:
+            return False
+
+        # Apply to live instances
+        for inst in theme.instances:
+            if inst.name in preset_tracks:
+                settings = preset_tracks[inst.name]
+                inst.volume = settings.get("volume", 1.0)
+                inst.presence = settings.get("presence", 1.0)
+                mode_str = settings.get("playback_mode", "auto")
+                try:
+                    inst.playback_mode = PlaybackMode(mode_str)
+                except ValueError:
+                    inst.playback_mode = PlaybackMode.AUTO
+                inst.crossfade_enabled = not settings.get("seamless_loop", False)
+                inst.exclusive = settings.get("exclusive", False)
+                inst.is_enabled = not settings.get("muted", False)
+
+        # Persist to state store
+        if self._state_store:
+            # Build dicts for state storage
+            presence_dict = {}
+            muted_dict = {}
+            volume_dict = {}
+            playback_mode_dict = {}
+            seamless_loop_dict = {}
+            exclusive_dict = {}
+
+            for track_name, settings in preset_tracks.items():
+                if settings.get("presence", 1.0) != 1.0:
+                    presence_dict[track_name] = settings["presence"]
+                if settings.get("muted", False):
+                    muted_dict[track_name] = True
+                if settings.get("volume", 1.0) != 1.0:
+                    volume_dict[track_name] = settings["volume"]
+                if settings.get("playback_mode", "auto") != "auto":
+                    playback_mode_dict[track_name] = settings["playback_mode"]
+                if settings.get("seamless_loop", False):
+                    seamless_loop_dict[track_name] = True
+                if settings.get("exclusive", False):
+                    exclusive_dict[track_name] = True
+
+            # Update state
+            self._state_store.settings.track_presence[theme_id] = presence_dict
+            self._state_store.settings.track_muted[theme_id] = muted_dict
+            self._state_store.settings.track_volume[theme_id] = volume_dict
+            self._state_store.settings.track_playback_mode[theme_id] = playback_mode_dict
+            self._state_store.settings.track_seamless_loop[theme_id] = seamless_loop_dict
+            self._state_store.settings.track_exclusive[theme_id] = exclusive_dict
+            self._state_store.save()
+
+        return True
+
+    async def list_presets(self, theme_id: str):
+        """List all presets for a theme."""
+        metadata = self._read_theme_metadata(theme_id)
+        presets = metadata.get("presets", {})
+
+        result = []
+        for preset_id, preset_data in presets.items():
+            result.append({
+                "id": preset_id,
+                "name": preset_data.get("name", preset_id),
+                "is_default": preset_data.get("is_default", False),
+                "track_count": len(preset_data.get("tracks", {})),
+            })
+
+        return {"theme_id": theme_id, "presets": result}
+
+    async def create_preset(self, theme_id: str, name: str = None):
+        """Create a new preset from current track settings."""
+        import re
+
+        theme = self.client.device.themes.id.get(theme_id)
+        if not theme:
+            raise HTTPException(status_code=404, detail="Theme not found")
+
+        # Generate preset ID from name
+        if not name:
+            name = "New Preset"
+        preset_id = re.sub(r'[^a-z0-9]+', '_', name.lower()).strip('_')
+        if not preset_id:
+            preset_id = "preset"
+
+        # Read existing metadata
+        metadata = self._read_theme_metadata(theme_id)
+        if "presets" not in metadata:
+            metadata["presets"] = {}
+
+        # Ensure unique ID
+        base_id = preset_id
+        counter = 1
+        while preset_id in metadata["presets"]:
+            preset_id = f"{base_id}_{counter}"
+            counter += 1
+
+        # Capture current settings
+        tracks = self._get_current_track_settings(theme_id)
+
+        # Check if this should be default (first preset)
+        is_default = len(metadata["presets"]) == 0
+
+        metadata["presets"][preset_id] = {
+            "name": name,
+            "is_default": is_default,
+            "tracks": tracks,
+        }
+
+        if not self._write_theme_metadata(theme_id, metadata):
+            raise HTTPException(status_code=500, detail="Failed to save preset")
+
+        return {
+            "status": "ok",
+            "preset_id": preset_id,
+            "name": name,
+            "is_default": is_default,
+        }
+
+    async def load_preset(self, theme_id: str, preset_id: str):
+        """Load a preset and apply its settings to the theme."""
+        metadata = self._read_theme_metadata(theme_id)
+        presets = metadata.get("presets", {})
+
+        if preset_id not in presets:
+            raise HTTPException(status_code=404, detail="Preset not found")
+
+        preset = presets[preset_id]
+        tracks = preset.get("tracks", {})
+
+        if not self._apply_preset_to_theme(theme_id, tracks):
+            raise HTTPException(status_code=500, detail="Failed to apply preset")
+
+        return {
+            "status": "ok",
+            "preset_id": preset_id,
+            "name": preset.get("name", preset_id),
+            "tracks_applied": len(tracks),
+        }
+
+    async def delete_preset(self, theme_id: str, preset_id: str):
+        """Delete a preset."""
+        metadata = self._read_theme_metadata(theme_id)
+        presets = metadata.get("presets", {})
+
+        if preset_id not in presets:
+            raise HTTPException(status_code=404, detail="Preset not found")
+
+        was_default = presets[preset_id].get("is_default", False)
+        del presets[preset_id]
+
+        # If we deleted the default, make the first remaining preset default
+        if was_default and presets:
+            first_key = next(iter(presets))
+            presets[first_key]["is_default"] = True
+
+        metadata["presets"] = presets
+        if not self._write_theme_metadata(theme_id, metadata):
+            raise HTTPException(status_code=500, detail="Failed to save changes")
+
+        return {"status": "ok", "preset_id": preset_id}
+
+    async def set_default_preset(self, theme_id: str, preset_id: str):
+        """Set a preset as the default for this theme."""
+        metadata = self._read_theme_metadata(theme_id)
+        presets = metadata.get("presets", {})
+
+        if preset_id not in presets:
+            raise HTTPException(status_code=404, detail="Preset not found")
+
+        # Clear existing default
+        for pid, pdata in presets.items():
+            pdata["is_default"] = (pid == preset_id)
+
+        metadata["presets"] = presets
+        if not self._write_theme_metadata(theme_id, metadata):
+            raise HTTPException(status_code=500, detail="Failed to save changes")
+
+        return {"status": "ok", "preset_id": preset_id, "is_default": True}
+
+    async def import_preset(self, theme_id: str, preset_json: str = None, name: str = None):
+        """Import a preset from JSON."""
+        import json
+        import re
+
+        theme = self.client.device.themes.id.get(theme_id)
+        if not theme:
+            raise HTTPException(status_code=404, detail="Theme not found")
+
+        if not preset_json:
+            raise HTTPException(status_code=400, detail="No preset JSON provided")
+
+        # Parse the JSON
+        try:
+            preset_data = json.loads(preset_json)
+        except json.JSONDecodeError as e:
+            raise HTTPException(status_code=400, detail=f"Invalid JSON: {e}")
+
+        # Validate structure - must have tracks dict
+        if not isinstance(preset_data, dict):
+            raise HTTPException(status_code=400, detail="Preset must be a JSON object")
+
+        # Support both full preset format and tracks-only format
+        if "tracks" in preset_data:
+            tracks = preset_data["tracks"]
+            imported_name = preset_data.get("name", name or "Imported Preset")
+        else:
+            # Assume it's a tracks-only format
+            tracks = preset_data
+            imported_name = name or "Imported Preset"
+
+        if not isinstance(tracks, dict):
+            raise HTTPException(status_code=400, detail="Tracks must be a JSON object")
+
+        # Validate track settings and filter to only known tracks
+        valid_track_names = {inst.name for inst in theme.instances}
+        validated_tracks = {}
+        unknown_tracks = []
+
+        for track_name, settings in tracks.items():
+            if track_name not in valid_track_names:
+                unknown_tracks.append(track_name)
+                continue
+
+            if not isinstance(settings, dict):
+                continue
+
+            validated_tracks[track_name] = {
+                "volume": float(settings.get("volume", 1.0)),
+                "presence": float(settings.get("presence", 1.0)),
+                "playback_mode": str(settings.get("playback_mode", "auto")),
+                "seamless_loop": bool(settings.get("seamless_loop", False)),
+                "exclusive": bool(settings.get("exclusive", False)),
+                "muted": bool(settings.get("muted", False)),
+            }
+
+        if not validated_tracks:
+            raise HTTPException(status_code=400, detail="No valid track settings found in preset")
+
+        # Generate preset ID
+        preset_id = re.sub(r'[^a-z0-9]+', '_', imported_name.lower()).strip('_')
+        if not preset_id:
+            preset_id = "imported"
+
+        # Read existing metadata and ensure unique ID
+        metadata = self._read_theme_metadata(theme_id)
+        if "presets" not in metadata:
+            metadata["presets"] = {}
+
+        base_id = preset_id
+        counter = 1
+        while preset_id in metadata["presets"]:
+            preset_id = f"{base_id}_{counter}"
+            counter += 1
+
+        # Save preset
+        metadata["presets"][preset_id] = {
+            "name": imported_name,
+            "is_default": False,
+            "tracks": validated_tracks,
+        }
+
+        if not self._write_theme_metadata(theme_id, metadata):
+            raise HTTPException(status_code=500, detail="Failed to save preset")
+
+        result = {
+            "status": "ok",
+            "preset_id": preset_id,
+            "name": imported_name,
+            "tracks_imported": len(validated_tracks),
+        }
+        if unknown_tracks:
+            result["unknown_tracks"] = unknown_tracks
+            result["warning"] = f"{len(unknown_tracks)} track(s) not found in theme"
+
+        return result
+
+    async def export_preset(self, theme_id: str, preset_id: str):
+        """Export a preset as JSON for sharing."""
+        metadata = self._read_theme_metadata(theme_id)
+        presets = metadata.get("presets", {})
+
+        if preset_id not in presets:
+            raise HTTPException(status_code=404, detail="Preset not found")
+
+        preset = presets[preset_id]
+
+        # Return full preset data for export
+        return {
+            "name": preset.get("name", preset_id),
+            "tracks": preset.get("tracks", {}),
+        }
 
     async def toggle_favorite(self, theme_id: str):
         """Toggle favorite status for a theme."""
