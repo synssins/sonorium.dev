@@ -81,10 +81,47 @@ class SessionManager:
         logger.info(f"  SessionManager: Updated themes reference ({len(themes)} themes)")
 
     def get_theme(self, theme_id: str) -> Optional[ThemeDefinition]:
-        """Get a theme by ID."""
+        """Get a theme by ID, handling both UUID-based and folder-based IDs."""
         if not self.themes:
             return None
-        return self.themes.id.get(theme_id)
+
+        # First try direct lookup (folder-based ID)
+        theme = self.themes.id.get(theme_id)
+        if theme:
+            return theme
+
+        # Try UUID lookup via metadata.json files
+        import json
+        from pathlib import Path
+
+        # Get audio path from device
+        if hasattr(self, 'themes') and self.themes and len(self.themes) > 0:
+            # Get path from first theme's sonorium device
+            first_theme = self.themes[0]
+            if hasattr(first_theme, 'sonorium') and hasattr(first_theme.sonorium, 'path_audio'):
+                audio_path = first_theme.sonorium.path_audio
+            else:
+                return None
+        else:
+            return None
+
+        # Scan folders for UUID match
+        if audio_path and audio_path.exists():
+            for folder in audio_path.iterdir():
+                if folder.is_dir():
+                    metadata_path = folder / "metadata.json"
+                    if metadata_path.exists():
+                        try:
+                            metadata = json.loads(metadata_path.read_text())
+                            if metadata.get("id") == theme_id:
+                                # Found the folder, now find the theme by folder name
+                                from fmtr.tools.string_tools import sanitize
+                                folder_id = sanitize(folder.name)
+                                return self.themes.id.get(folder_id)
+                        except Exception:
+                            pass
+
+        return None
     
     def get_stream_url(self, session: Session) -> str:
         """
