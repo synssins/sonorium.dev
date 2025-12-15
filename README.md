@@ -10,20 +10,19 @@ Sonorium lets you create immersive ambient audio environments throughout your ho
 
 ## What's New in v1.1
 
-### Theme Presets (v1.1.52)
-Save and load named track configurations for each theme:
+### Theme Presets & Portable Themes (v1.1.52)
+Save and load named track configurations, with UUID-based theme identification for portability:
 
+**Presets:**
 - **Save/Load Presets** - Store current track settings (volume, presence, playback mode, enabled/disabled) as named presets
 - **Channel Preset Selection** - Select presets directly on channel cards—no need to open the theme editor
 - **Update Existing Presets** - Modify settings and save back to the same preset
 - **Import/Export** - Share presets as JSON with the community
 - **Default Preset** - Set a preset to auto-load when theme is selected
 
-### UUID-Based Theme Identification (v1.1.52)
-Themes now have persistent identifiers stored in metadata.json:
-
-- **Portable Themes** - Rename folders without losing settings
-- **All Settings Travel** - Favorites, categories, presets, and track settings stay with the theme
+**Portable Themes:**
+- **UUID-Based Identification** - Themes identified by persistent UUID in metadata.json
+- **Rename Without Losing Settings** - Folder renames don't break favorites, categories, or presets
 - **Cross-Installation** - Theme packages work across different Sonorium installations
 
 ### Track Mixer with Advanced Controls
