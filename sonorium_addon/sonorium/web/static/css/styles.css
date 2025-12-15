@@ -1003,6 +1003,16 @@ body {
     display: block;
 }
 
+.rename-row {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.rename-row input {
+    flex: 1;
+}
+
 .track-list {
     display: flex;
     flex-direction: column;

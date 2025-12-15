@@ -1088,6 +1088,7 @@ function openThemeEditModal(themeId) {
 
     document.getElementById('theme-edit-id').value = themeId;
     document.getElementById('theme-edit-title').textContent = `Edit: ${theme.name}`;
+    document.getElementById('theme-edit-name').value = theme.name || '';
     document.getElementById('theme-edit-description').value = theme.description || '';
 
     // Render category checkboxes
@@ -1136,14 +1137,17 @@ async function loadTrackMixer(themeId, preservePresetSelection = false) {
         presetSelect.value = currentPresetId;
         // Update button visibility without triggering load
         const defaultBtn = document.getElementById('preset-default-btn');
+        const renameBtn = document.getElementById('preset-rename-btn');
         const deleteBtn = document.getElementById('preset-delete-btn');
         const exportBtn = document.getElementById('preset-export-btn');
         if (currentPresetId) {
             defaultBtn.style.display = '';
+            renameBtn.style.display = '';
             deleteBtn.style.display = '';
             exportBtn.style.display = '';
         } else {
             defaultBtn.style.display = 'none';
+            renameBtn.style.display = 'none';
             deleteBtn.style.display = 'none';
             exportBtn.style.display = 'none';
         }
@@ -1397,11 +1401,13 @@ function updatePresetDropdown() {
 
 async function onPresetSelectChange(presetId) {
     const defaultBtn = document.getElementById('preset-default-btn');
+    const renameBtn = document.getElementById('preset-rename-btn');
     const deleteBtn = document.getElementById('preset-delete-btn');
     const exportBtn = document.getElementById('preset-export-btn');
 
     if (presetId) {
         defaultBtn.style.display = '';
+        renameBtn.style.display = '';
         deleteBtn.style.display = '';
         exportBtn.style.display = '';
 
@@ -1419,6 +1425,7 @@ async function onPresetSelectChange(presetId) {
         }
     } else {
         defaultBtn.style.display = 'none';
+        renameBtn.style.display = 'none';
         deleteBtn.style.display = 'none';
         exportBtn.style.display = 'none';
     }
@@ -1591,6 +1598,74 @@ async function copyPresetJson() {
     } catch (error) {
         console.error('Failed to copy:', error);
         showToast('Failed to copy to clipboard', 'error');
+    }
+}
+
+// ============================================
+// Rename Functions
+// ============================================
+
+async function renameTheme() {
+    const themeId = document.getElementById('theme-edit-id').value;
+    const newName = document.getElementById('theme-edit-name').value.trim();
+
+    if (!newName) {
+        showToast('Please enter a theme name', 'warning');
+        return;
+    }
+
+    try {
+        const result = await api('PUT', `/themes/${themeId}/rename`, { name: newName });
+        showToast(`Renamed to: ${result.new_name}`, 'success');
+
+        // Close the modal and refresh themes
+        closeThemeEditModal();
+        await loadThemes();
+    } catch (error) {
+        console.error('Failed to rename theme:', error);
+        const detail = error.message || 'Failed to rename theme';
+        showToast(detail, 'error');
+    }
+}
+
+function showRenamePresetModal() {
+    const select = document.getElementById('preset-select');
+    const presetId = select.value;
+    if (!presetId) return;
+
+    // Get current preset name
+    const preset = currentPresets.find(p => p.id === presetId);
+    document.getElementById('preset-rename-name').value = preset ? preset.name : '';
+    document.getElementById('preset-rename-modal').style.display = 'flex';
+}
+
+function closeRenamePresetModal() {
+    document.getElementById('preset-rename-modal').style.display = 'none';
+}
+
+async function confirmRenamePreset() {
+    const select = document.getElementById('preset-select');
+    const presetId = select.value;
+    const newName = document.getElementById('preset-rename-name').value.trim();
+
+    if (!newName) {
+        showToast('Please enter a preset name', 'warning');
+        return;
+    }
+
+    if (!presetId || !currentTrackMixerThemeId) return;
+
+    try {
+        const result = await api('PUT', `/themes/${currentTrackMixerThemeId}/presets/${presetId}/rename`, { name: newName });
+        showToast(`Renamed to: ${result.name}`, 'success');
+        closeRenamePresetModal();
+
+        // Reload presets to show new name
+        await loadPresets(currentTrackMixerThemeId);
+        select.value = presetId;
+    } catch (error) {
+        console.error('Failed to rename preset:', error);
+        showToast('Failed to rename preset', 'error');
     }
 }
 

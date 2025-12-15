@@ -98,12 +98,16 @@ class ApiSonorium(api.Base):
             api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name}/exclusive', method=self.set_track_exclusive),
             api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/tracks/reset', method=self.reset_theme_tracks),
 
+            # Theme rename
+            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/rename', method=self.rename_theme),
+
             # Preset API
             api.Endpoint(method_http=self.app.get, path='/api/themes/{theme_id}/presets', method=self.list_presets),
             api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/presets', method=self.create_preset),
             api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/presets/{preset_id}/load', method=self.load_preset),
             api.Endpoint(method_http=self.app.delete, path='/api/themes/{theme_id}/presets/{preset_id}', method=self.delete_preset),
             api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/presets/{preset_id}/default', method=self.set_default_preset),
+            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/presets/{preset_id}/rename', method=self.rename_preset),
             api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/presets/import', method=self.import_preset),
             api.Endpoint(method_http=self.app.get, path='/api/themes/{theme_id}/presets/{preset_id}/export', method=self.export_preset),
 
@@ -1514,6 +1518,88 @@ class ApiSonorium(api.Base):
         return {
             "name": preset.get("name", preset_id),
             "tracks": preset.get("tracks", {}),
+        }
+
+    async def rename_theme(self, theme_id: str, request: Request):
+        """Rename a theme folder."""
+        import re
+
+        # Get new name from request body
+        try:
+            body = await request.json()
+            new_name = body.get("name", "").strip()
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid request body")
+
+        if not new_name:
+            raise HTTPException(status_code=400, detail="Name is required")
+
+        # Find current theme folder
+        folder = self._find_theme_folder(theme_id)
+        if not folder:
+            raise HTTPException(status_code=404, detail="Theme folder not found")
+
+        # Create new folder name (sanitize for filesystem)
+        new_folder_name = re.sub(r'[<>:"/\\|?*]', '', new_name)  # Remove invalid chars
+        new_folder_name = new_folder_name.strip()
+        if not new_folder_name:
+            raise HTTPException(status_code=400, detail="Invalid name")
+
+        # Check if new name already exists
+        new_path = folder.parent / new_folder_name
+        if new_path.exists() and new_path != folder:
+            raise HTTPException(status_code=409, detail="A theme with that name already exists")
+
+        # Rename the folder
+        try:
+            folder.rename(new_path)
+            logger.info(f"Renamed theme folder: {folder} -> {new_path}")
+        except Exception as e:
+            logger.error(f"Failed to rename theme folder: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to rename: {e}")
+
+        # Refresh themes to pick up the change
+        await self.refresh_themes()
+
+        # Generate new theme_id
+        new_theme_id = ''.join(c for c in new_folder_name.lower() if c.isalnum())
+
+        return {
+            "status": "ok",
+            "old_name": folder.name,
+            "new_name": new_folder_name,
+            "new_theme_id": new_theme_id,
+        }
+
+    async def rename_preset(self, theme_id: str, preset_id: str, request: Request):
+        """Rename a preset."""
+        # Get new name from request body
+        try:
+            body = await request.json()
+            new_name = body.get("name", "").strip()
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid request body")
+
+        if not new_name:
+            raise HTTPException(status_code=400, detail="Name is required")
+
+        metadata = self._read_theme_metadata(theme_id)
+        presets = metadata.get("presets", {})
+
+        if preset_id not in presets:
+            raise HTTPException(status_code=404, detail="Preset not found")
+
+        # Update the name
+        presets[preset_id]["name"] = new_name
+        metadata["presets"] = presets
+
+        if not self._write_theme_metadata(theme_id, metadata):
+            raise HTTPException(status_code=500, detail="Failed to save changes")
+
+        return {
+            "status": "ok",
+            "preset_id": preset_id,
+            "name": new_name,
         }
 
     async def toggle_favorite(self, theme_id: str):

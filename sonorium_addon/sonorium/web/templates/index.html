@@ -222,6 +222,13 @@
                         <div class="theme-edit-form">
                             <input type="hidden" id="theme-edit-id">
                             <div>
+                                <label>Theme Name</label>
+                                <div class="rename-row">
+                                    <input type="text" id="theme-edit-name" placeholder="Theme name...">
+                                    <button class="btn btn-sm btn-secondary" onclick="renameTheme()">Rename</button>
+                                </div>
+                            </div>
+                            <div>
                                 <label>Description</label>
                                 <textarea id="theme-edit-description" placeholder="Enter a description for this theme..."></textarea>
                             </div>
@@ -254,6 +261,9 @@
                                         </button>
                                         <button class="btn btn-sm btn-icon" onclick="setPresetAsDefault()" title="Set as default" id="preset-default-btn" style="display: none;">
                                             <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>
+                                        </button>
+                                        <button class="btn btn-sm btn-icon" onclick="showRenamePresetModal()" title="Rename preset" id="preset-rename-btn" style="display: none;">
+                                            <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
                                         </button>
                                         <button class="btn btn-sm btn-icon btn-danger" onclick="deleteSelectedPreset()" title="Delete preset" id="preset-delete-btn" style="display: none;">
                                             <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
@@ -461,6 +471,28 @@ Example:
                     <div class="modal-footer">
                         <button class="btn btn-secondary" onclick="closePresetSaveModal()">Cancel</button>
                         <button class="btn btn-primary" onclick="confirmSavePreset()">Save</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Preset Rename Modal -->
+            <div id="preset-rename-modal" class="modal-backdrop" onclick="if(event.target===this) closeRenamePresetModal()">
+                <div class="modal" style="max-width: 400px;">
+                    <div class="modal-header">
+                        <h3>Rename Preset</h3>
+                        <button class="modal-close" onclick="closeRenamePresetModal()">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="theme-create-form">
+                            <div>
+                                <label for="preset-rename-name">New Name *</label>
+                                <input type="text" id="preset-rename-name" placeholder="Enter new preset name...">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-secondary" onclick="closeRenamePresetModal()">Cancel</button>
+                        <button class="btn btn-primary" onclick="confirmRenamePreset()">Rename</button>
                     </div>
                 </div>
             </div>
