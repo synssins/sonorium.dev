@@ -1765,10 +1765,7 @@ class ApiSonorium(api.Base):
         return {"status": "ok", "deleted": category_name, "categories": categories}
 
     async def set_theme_categories(self, theme_id: str, request: Request):
-        """Set categories for a theme."""
-        if not self._state_store:
-            return {"error": "State not available"}
-
+        """Set categories for a theme (stored in metadata.json)."""
         try:
             body = await request.json()
         except Exception:
@@ -1776,15 +1773,31 @@ class ApiSonorium(api.Base):
 
         new_categories = body.get("categories", [])
 
-        # Ensure all categories exist (auto-create if needed)
-        existing_categories = self._state_store.settings.theme_categories
-        for cat in new_categories:
-            if cat not in existing_categories:
-                existing_categories.append(cat)
+        # Ensure all categories exist in global list (auto-create if needed)
+        if self._state_store:
+            existing_categories = self._state_store.settings.theme_categories
+            for cat in new_categories:
+                if cat not in existing_categories:
+                    existing_categories.append(cat)
+            self._state_store.save()
 
-        # Update theme's category assignments
-        self._state_store.settings.theme_category_assignments[theme_id] = new_categories
-        self._state_store.save()
+        # Get the theme folder using UUID-aware lookup
+        theme_folder = self._find_theme_folder(theme_id)
+        if not theme_folder:
+            return {"error": "Theme not found"}
+
+        # Save categories to metadata.json
+        metadata = self._read_theme_metadata(theme_id)
+        metadata["categories"] = new_categories
+
+        if not self._write_theme_metadata(theme_id, metadata):
+            return {"error": "Failed to save categories"}
+
+        # Also update the metadata manager cache if available
+        if self._theme_metadata_manager:
+            cached_metadata = self._theme_metadata_manager.get_metadata_by_folder(theme_folder)
+            if cached_metadata:
+                cached_metadata.categories = new_categories
 
         return {"theme_id": theme_id, "categories": new_categories}
 

@@ -1249,28 +1249,44 @@ def create_api_router(
             raise HTTPException(status_code=500, detail=str(e))
 
     def _find_theme_folder(theme_id: str):
-        """Find theme folder by ID, handling sanitized names."""
+        """Find theme folder by ID, handling sanitized names and UUID-based IDs."""
+        import json
         from pathlib import Path
         from fmtr.tools.string_tools import sanitize
 
-        media_paths = [
-            Path("/media/sonorium"),
-            Path("/share/sonorium"),
-        ]
+        # Get audio path from device if available, otherwise use defaults
+        media_paths = []
+        if themes and hasattr(themes, '_device') and themes._device:
+            media_paths.append(themes._device.path_audio)
+        else:
+            media_paths = [
+                Path("/media/sonorium"),
+                Path("/share/sonorium"),
+            ]
 
         for mp in media_paths:
             if not mp.exists():
                 continue
 
-            # Try exact match first
+            # Try exact match first (folder name = theme_id)
             exact_path = mp / theme_id
             if exact_path.exists():
                 return exact_path
 
-            # Try to find by comparing sanitized folder names
-            # Use the same sanitize function as ThemeDefinition.id
+            # Scan folders for UUID match in metadata.json or sanitized name match
             for folder in mp.iterdir():
                 if folder.is_dir():
+                    # Check metadata.json for UUID match
+                    metadata_path = folder / "metadata.json"
+                    if metadata_path.exists():
+                        try:
+                            metadata = json.loads(metadata_path.read_text())
+                            if metadata.get("id") == theme_id:
+                                return folder
+                        except Exception:
+                            pass
+
+                    # Try sanitized folder name match
                     sanitized = sanitize(folder.name)
                     if sanitized == theme_id:
                         return folder
