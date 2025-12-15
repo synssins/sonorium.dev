@@ -1254,15 +1254,10 @@ def create_api_router(
         from pathlib import Path
         from fmtr.tools.string_tools import sanitize
 
-        # Get audio path from device if available, otherwise use defaults
-        media_paths = []
-        if themes and hasattr(themes, '_device') and themes._device:
-            media_paths.append(themes._device.path_audio)
-        else:
-            media_paths = [
-                Path("/media/sonorium"),
-                Path("/share/sonorium"),
-            ]
+        media_paths = [
+            Path("/media/sonorium"),
+            Path("/share/sonorium"),
+        ]
 
         for mp in media_paths:
             if not mp.exists():
