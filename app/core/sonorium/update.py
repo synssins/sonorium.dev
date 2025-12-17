@@ -21,8 +21,9 @@ from sonorium.obs import logger
 
 
 # Configuration
-GITHUB_REPO = "synssins/sonorium"  # Update with actual repo
-GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+GITHUB_REPO = "synssins/sonorium"
+# Use /releases to include prereleases (alpha/beta), not /releases/latest
+GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases"
 USER_AGENT = "Sonorium/1.0"
 
 
@@ -94,9 +95,12 @@ def is_newer_version(remote: str, current: str) -> bool:
     return parse_version(remote) > parse_version(current)
 
 
-def check_for_updates() -> Optional[ReleaseInfo]:
+def check_for_updates(include_prereleases: bool = True) -> Optional[ReleaseInfo]:
     """
     Check GitHub for a newer release.
+
+    Args:
+        include_prereleases: If True, include alpha/beta releases
 
     Returns:
         ReleaseInfo if a newer version is available, None otherwise.
@@ -114,44 +118,57 @@ def check_for_updates() -> Optional[ReleaseInfo]:
         )
 
         with urlopen(req, timeout=15) as response:
-            data = json.loads(response.read().decode())
+            releases = json.loads(response.read().decode())
 
-        # Extract version from tag
-        tag_name = data.get("tag_name", "")
-        remote_version = tag_name.lstrip('v')
+        # Find the first suitable release
+        for data in releases:
+            # Skip prereleases if not wanted
+            if not include_prereleases and data.get("prerelease", False):
+                continue
 
-        if not is_newer_version(remote_version, current_version):
-            logger.info(f"No update available (latest: {remote_version})")
-            return None
+            # Skip drafts
+            if data.get("draft", False):
+                continue
 
-        # Find downloadable asset
-        download_url = ""
-        download_size = 0
+            # Extract version from tag
+            tag_name = data.get("tag_name", "")
+            remote_version = tag_name.lstrip('v')
 
-        for asset in data.get("assets", []):
-            name = asset.get("name", "").lower()
-            if "sonorium" in name and (name.endswith(".zip") or name.endswith(".exe")):
-                download_url = asset.get("browser_download_url", "")
-                download_size = asset.get("size", 0)
-                break
+            if not is_newer_version(remote_version, current_version):
+                logger.info(f"No update available (latest: {remote_version})")
+                return None
 
-        if not download_url:
-            logger.warning("No suitable download asset found in release")
-            return None
+            # Find downloadable EXE asset (prefer .exe over .zip)
+            download_url = ""
+            download_size = 0
 
-        release = ReleaseInfo(
-            version=remote_version,
-            tag_name=tag_name,
-            name=data.get("name", f"Version {remote_version}"),
-            body=data.get("body", ""),
-            published_at=data.get("published_at", ""),
-            download_url=download_url,
-            download_size=download_size,
-            html_url=data.get("html_url", ""),
-        )
+            for asset in data.get("assets", []):
+                name = asset.get("name", "").lower()
+                if name == "sonorium.exe":
+                    download_url = asset.get("browser_download_url", "")
+                    download_size = asset.get("size", 0)
+                    break
 
-        logger.info(f"Update available: {remote_version}")
-        return release
+            if not download_url:
+                logger.warning("No Sonorium.exe found in release assets")
+                continue
+
+            release = ReleaseInfo(
+                version=remote_version,
+                tag_name=tag_name,
+                name=data.get("name", f"Version {remote_version}"),
+                body=data.get("body", ""),
+                published_at=data.get("published_at", ""),
+                download_url=download_url,
+                download_size=download_size,
+                html_url=data.get("html_url", ""),
+            )
+
+            logger.info(f"Update available: {remote_version}")
+            return release
+
+        logger.info("No updates available")
+        return None
 
     except (URLError, HTTPError) as e:
         logger.warning(f"Failed to check for updates: {e}")

@@ -28,10 +28,10 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QTextEdit, QSystemTrayIcon, QMenu,
     QDialog, QFormLayout, QSpinBox, QCheckBox, QComboBox,
-    QTabWidget, QGroupBox, QMessageBox, QStyle, QProgressDialog
+    QTabWidget, QGroupBox, QMessageBox, QStyle, QProgressBar
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QProcess, QUrl
-from PyQt6.QtGui import QIcon, QPixmap, QAction, QDesktopServices, QFont
+from PyQt6.QtGui import QIcon, QPixmap, QAction, QDesktopServices, QFont, QTextCursor
 
 
 # Constants
@@ -348,6 +348,280 @@ class SetupDialog(QDialog):
             self.reject()
 
 
+class UpdateCheckThread(QThread):
+    """Thread to check for updates."""
+
+    update_available = pyqtSignal(dict)  # Release info dict
+    no_update = pyqtSignal()
+    error = pyqtSignal(str)
+
+    def run(self):
+        """Check GitHub releases for updates."""
+        try:
+            req = urllib.request.Request(
+                RELEASES_API_URL,
+                headers={'Accept': 'application/vnd.github.v3+json', 'User-Agent': 'Sonorium-Launcher'}
+            )
+            with urllib.request.urlopen(req, timeout=15) as response:
+                releases = json.loads(response.read().decode('utf-8'))
+
+            # Find first non-draft release
+            for release in releases:
+                if release.get('draft', False):
+                    continue
+
+                tag = release.get('tag_name', '').lstrip('v')
+                current = APP_VERSION.lstrip('v')
+
+                # Parse versions for comparison
+                def parse_ver(v):
+                    # Handle versions like "0.1.0-alpha" -> (0, 1, 0, 'alpha')
+                    parts = v.replace('-', '.').split('.')
+                    result = []
+                    for p in parts:
+                        try:
+                            result.append(int(p))
+                        except ValueError:
+                            result.append(p)
+                    return tuple(result)
+
+                if parse_ver(tag) > parse_ver(current):
+                    # Find Sonorium.exe asset
+                    for asset in release.get('assets', []):
+                        if asset.get('name', '').lower() == 'sonorium.exe':
+                            self.update_available.emit({
+                                'version': tag,
+                                'tag_name': release.get('tag_name'),
+                                'name': release.get('name', f'Version {tag}'),
+                                'body': release.get('body', ''),
+                                'download_url': asset.get('browser_download_url'),
+                                'size': asset.get('size', 0),
+                                'html_url': release.get('html_url', ''),
+                            })
+                            return
+
+                # If we get here, current version is up to date
+                self.no_update.emit()
+                return
+
+            self.no_update.emit()
+
+        except Exception as e:
+            self.error.emit(str(e))
+
+
+class UpdateDownloadThread(QThread):
+    """Thread to download and apply update."""
+
+    progress = pyqtSignal(int, int)  # downloaded, total
+    finished = pyqtSignal(bool, str)  # success, message/path
+
+    def __init__(self, download_url: str, target_path: Path):
+        super().__init__()
+        self.download_url = download_url
+        self.target_path = target_path
+
+    def run(self):
+        """Download the update."""
+        try:
+            req = urllib.request.Request(
+                self.download_url,
+                headers={'User-Agent': 'Sonorium-Launcher'}
+            )
+
+            with urllib.request.urlopen(req, timeout=120) as response:
+                total_size = int(response.headers.get('content-length', 0))
+                downloaded = 0
+                chunk_size = 65536
+
+                with open(self.target_path, 'wb') as f:
+                    while True:
+                        chunk = response.read(chunk_size)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        self.progress.emit(downloaded, total_size)
+
+            self.finished.emit(True, str(self.target_path))
+
+        except Exception as e:
+            self.finished.emit(False, str(e))
+
+
+class UpdateDialog(QDialog):
+    """Dialog showing available update and download progress."""
+
+    def __init__(self, release_info: dict, parent=None):
+        super().__init__(parent)
+        self.release_info = release_info
+        self.download_thread: Optional[UpdateDownloadThread] = None
+        self.downloaded_path: Optional[Path] = None
+        self.setWindowTitle("Update Available")
+        self.setMinimumSize(500, 400)
+        self.setup_ui()
+
+    def setup_ui(self):
+        layout = QVBoxLayout(self)
+
+        # Header
+        header = QLabel(f"<h2>Sonorium {self.release_info['tag_name']} Available</h2>")
+        header.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(header)
+
+        current_label = QLabel(f"Current version: {APP_VERSION}")
+        current_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        current_label.setStyleSheet("color: gray;")
+        layout.addWidget(current_label)
+
+        # Release notes
+        notes_label = QLabel("What's new:")
+        layout.addWidget(notes_label)
+
+        self.notes_text = QTextEdit()
+        self.notes_text.setReadOnly(True)
+        self.notes_text.setMarkdown(self.release_info.get('body', 'No release notes available.'))
+        layout.addWidget(self.notes_text)
+
+        # Download size
+        size_mb = self.release_info.get('size', 0) / (1024 * 1024)
+        size_label = QLabel(f"Download size: {size_mb:.1f} MB")
+        size_label.setStyleSheet("color: gray;")
+        layout.addWidget(size_label)
+
+        # Progress bar (hidden initially)
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setVisible(False)
+        layout.addWidget(self.progress_bar)
+
+        self.status_label = QLabel("")
+        self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.status_label)
+
+        # Buttons
+        button_layout = QHBoxLayout()
+
+        self.download_btn = QPushButton("Download && Install")
+        self.download_btn.clicked.connect(self.start_download)
+        button_layout.addWidget(self.download_btn)
+
+        self.later_btn = QPushButton("Remind Later")
+        self.later_btn.clicked.connect(self.reject)
+        button_layout.addWidget(self.later_btn)
+
+        self.skip_btn = QPushButton("Skip This Version")
+        self.skip_btn.clicked.connect(self.skip_version)
+        button_layout.addWidget(self.skip_btn)
+
+        layout.addLayout(button_layout)
+
+    def start_download(self):
+        """Start downloading the update."""
+        self.download_btn.setEnabled(False)
+        self.later_btn.setEnabled(False)
+        self.skip_btn.setEnabled(False)
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setValue(0)
+        self.status_label.setText("Downloading update...")
+
+        # Download to temp location
+        app_dir = get_app_dir()
+        temp_path = app_dir / f'Sonorium_update_{self.release_info["version"]}.exe'
+
+        self.download_thread = UpdateDownloadThread(
+            self.release_info['download_url'],
+            temp_path
+        )
+        self.download_thread.progress.connect(self.on_progress)
+        self.download_thread.finished.connect(self.on_download_finished)
+        self.download_thread.start()
+
+    def on_progress(self, downloaded: int, total: int):
+        """Update progress bar."""
+        if total > 0:
+            self.progress_bar.setMaximum(total)
+            self.progress_bar.setValue(downloaded)
+            mb_down = downloaded / (1024 * 1024)
+            mb_total = total / (1024 * 1024)
+            self.status_label.setText(f"Downloading: {mb_down:.1f} / {mb_total:.1f} MB")
+
+    def on_download_finished(self, success: bool, message: str):
+        """Handle download completion."""
+        if success:
+            self.downloaded_path = Path(message)
+            self.status_label.setText("Download complete! Click 'Install Now' to apply update.")
+            self.download_btn.setText("Install Now")
+            self.download_btn.setEnabled(True)
+            self.download_btn.clicked.disconnect()
+            self.download_btn.clicked.connect(self.install_update)
+        else:
+            self.status_label.setText(f"Download failed: {message}")
+            self.download_btn.setEnabled(True)
+            self.later_btn.setEnabled(True)
+            self.skip_btn.setEnabled(True)
+            self.progress_bar.setVisible(False)
+
+    def install_update(self):
+        """Apply the downloaded update."""
+        if not self.downloaded_path or not self.downloaded_path.exists():
+            QMessageBox.critical(self, "Error", "Downloaded file not found")
+            return
+
+        # Get current EXE path
+        if getattr(sys, 'frozen', False):
+            current_exe = Path(sys.executable)
+        else:
+            QMessageBox.information(self, "Dev Mode",
+                                  "Update cannot be applied in development mode.\n"
+                                  f"Downloaded to: {self.downloaded_path}")
+            self.accept()
+            return
+
+        # Create batch script to replace EXE after we exit
+        app_dir = get_app_dir()
+        batch_path = app_dir / 'update.bat'
+
+        batch_script = f'''@echo off
+echo Waiting for Sonorium to close...
+timeout /t 2 /nobreak > nul
+echo Applying update...
+move /y "{self.downloaded_path}" "{current_exe}"
+if errorlevel 1 (
+    echo Update failed! Press any key to exit.
+    pause
+    exit /b 1
+)
+echo Update complete! Restarting Sonorium...
+start "" "{current_exe}"
+del "%~f0"
+'''
+
+        try:
+            with open(batch_path, 'w') as f:
+                f.write(batch_script)
+
+            # Launch the batch script
+            subprocess.Popen(
+                ['cmd', '/c', str(batch_path)],
+                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS,
+                close_fds=True
+            )
+
+            # Signal to quit the application
+            self.done(2)  # Special code to indicate restart needed
+
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to apply update: {e}")
+
+    def skip_version(self):
+        """Mark this version as skipped."""
+        # Save to config
+        config = load_config()
+        config['skipped_version'] = self.release_info['version']
+        save_config(config)
+        self.reject()
+
+
 class SettingsDialog(QDialog):
     """Settings dialog window."""
 
@@ -533,6 +807,7 @@ class MainWindow(QMainWindow):
         self.config = load_config()
         self.server_thread: Optional[ServerThread] = None
         self.server_running = False
+        self.update_check_thread: Optional[UpdateCheckThread] = None
 
         self.setup_ui()
         self.setup_tray()
@@ -547,6 +822,55 @@ class MainWindow(QMainWindow):
                 QTimer.singleShot(100, self.hide)
             else:
                 QTimer.singleShot(100, self.showMinimized)
+
+        # Check for updates after a short delay
+        if self.config.get('check_updates_on_startup', True):
+            QTimer.singleShot(3000, self.check_for_updates)
+
+    def check_for_updates(self, silent: bool = True):
+        """Check for updates from GitHub."""
+        self.update_check_thread = UpdateCheckThread()
+        self.update_check_thread.update_available.connect(
+            lambda info: self.on_update_available(info, silent)
+        )
+        self.update_check_thread.no_update.connect(
+            lambda: self.on_no_update(silent)
+        )
+        self.update_check_thread.error.connect(
+            lambda err: self.on_update_error(err, silent)
+        )
+        self.update_check_thread.start()
+
+    def on_update_available(self, release_info: dict, silent: bool):
+        """Handle update available."""
+        # Check if user skipped this version
+        skipped = self.config.get('skipped_version', '')
+        if skipped == release_info['version']:
+            self.append_log(f"Update {release_info['version']} available but skipped by user")
+            return
+
+        self.append_log(f"Update available: {release_info['tag_name']}")
+
+        # Show update dialog
+        dialog = UpdateDialog(release_info, self)
+        result = dialog.exec()
+
+        if result == 2:  # Special code for restart
+            self.quit_app()
+
+    def on_no_update(self, silent: bool):
+        """Handle no update available."""
+        if not silent:
+            QMessageBox.information(self, "No Updates",
+                                  f"You're running the latest version ({APP_VERSION}).")
+        self.append_log(f"No updates available (current: {APP_VERSION})")
+
+    def on_update_error(self, error: str, silent: bool):
+        """Handle update check error."""
+        if not silent:
+            QMessageBox.warning(self, "Update Check Failed",
+                              f"Could not check for updates:\n{error}")
+        self.append_log(f"Update check failed: {error}")
 
     def setup_ui(self):
         """Set up the main window UI."""
@@ -674,6 +998,11 @@ class MainWindow(QMainWindow):
         help_action = QAction("Help (Wiki)", self)
         help_action.triggered.connect(lambda: webbrowser.open(WIKI_URL))
         tray_menu.addAction(help_action)
+
+        # Check for Updates
+        update_action = QAction("Check for Updates...", self)
+        update_action.triggered.connect(lambda: self.check_for_updates(silent=False))
+        tray_menu.addAction(update_action)
 
         # About
         about_action = QAction("About", self)
