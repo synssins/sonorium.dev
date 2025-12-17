@@ -32,6 +32,11 @@ jobs:
           cd app/windows/src
           pyinstaller --distpath .. --workpath ../build --clean Sonorium.spec
 
+      - name: Build updater.exe
+        run: |
+          cd app/windows/src
+          pyinstaller --distpath .. --workpath ../build --clean Updater.spec
+
       - name: Create core.zip
         run: |
           # Create zip with core/ and themes/ folders
@@ -51,6 +56,7 @@ jobs:
           prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') }}
           files: |
             app/windows/Sonorium.exe
+            app/windows/updater.exe
             core.zip
           body: |
             ## Sonorium ${{ steps.get_version.outputs.VERSION }}

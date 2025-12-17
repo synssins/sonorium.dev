@@ -39,7 +39,7 @@ from PyQt6.QtGui import QIcon, QPixmap, QAction, QDesktopServices, QFont, QTextC
 
 # Constants
 APP_NAME = "Sonorium"
-APP_VERSION = "0.1.6-alpha"
+APP_VERSION = "0.1.7-alpha"
 DEFAULT_PORT = 8008
 
 # Global logger instance
@@ -702,7 +702,9 @@ class UpdateDialog(QDialog):
             self.progress_bar.setVisible(False)
 
     def install_update(self):
-        """Apply the downloaded update."""
+        """Apply the downloaded update using updater.exe."""
+        logger = get_logger()
+
         if not self.downloaded_path or not self.downloaded_path.exists():
             QMessageBox.critical(self, "Error", "Downloaded file not found")
             return
@@ -717,41 +719,83 @@ class UpdateDialog(QDialog):
             self.accept()
             return
 
-        # Create batch script to replace EXE after we exit
         app_dir = get_app_dir()
-        batch_path = app_dir / 'update.bat'
+        updater_path = app_dir / 'updater.exe'
 
-        batch_script = f'''@echo off
-echo Waiting for Sonorium to close...
-timeout /t 2 /nobreak > nul
-echo Applying update...
-move /y "{self.downloaded_path}" "{current_exe}"
-if errorlevel 1 (
-    echo Update failed! Press any key to exit.
-    pause
-    exit /b 1
-)
-echo Update complete! Restarting Sonorium...
-start "" "{current_exe}"
-del "%~f0"
-'''
+        # Check if updater.exe exists, download if not
+        if not updater_path.exists():
+            logger.info("updater.exe not found, downloading...")
+            self.status_label.setText("Downloading updater...")
+            QApplication.processEvents()
+
+            if not self._download_updater(updater_path):
+                QMessageBox.critical(self, "Error",
+                                   "Could not download updater.exe.\n"
+                                   "Please download it manually from the releases page.")
+                return
+
+        logger.info(f"Launching updater: {updater_path}")
+        logger.info(f"  --target {current_exe}")
+        logger.info(f"  --update {self.downloaded_path}")
 
         try:
-            with open(batch_path, 'w') as f:
-                f.write(batch_script)
-
-            # Launch the batch script
+            # Launch the updater
             subprocess.Popen(
-                ['cmd', '/c', str(batch_path)],
+                [
+                    str(updater_path),
+                    '--target', str(current_exe),
+                    '--update', str(self.downloaded_path)
+                ],
                 creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS,
                 close_fds=True
             )
+
+            logger.info("Updater launched, exiting application")
 
             # Signal to quit the application
             self.done(2)  # Special code to indicate restart needed
 
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to apply update: {e}")
+            logger.exception(f"Failed to launch updater: {e}")
+            QMessageBox.critical(self, "Error", f"Failed to launch updater: {e}")
+
+    def _download_updater(self, target_path: Path) -> bool:
+        """Download updater.exe from GitHub releases."""
+        logger = get_logger()
+
+        try:
+            # Get the updater.exe URL from the same release
+            req = urllib.request.Request(
+                RELEASES_API_URL,
+                headers={'Accept': 'application/vnd.github.v3+json', 'User-Agent': 'Sonorium-Launcher'}
+            )
+
+            with urllib.request.urlopen(req, timeout=15) as response:
+                releases = json.loads(response.read().decode('utf-8'))
+
+            # Find updater.exe in any release
+            for release in releases:
+                if release.get('draft', False):
+                    continue
+                for asset in release.get('assets', []):
+                    if asset.get('name', '').lower() == 'updater.exe':
+                        url = asset.get('browser_download_url')
+                        logger.info(f"Downloading updater from: {url}")
+
+                        req = urllib.request.Request(url, headers={'User-Agent': 'Sonorium-Launcher'})
+                        with urllib.request.urlopen(req, timeout=60) as resp:
+                            with open(target_path, 'wb') as f:
+                                f.write(resp.read())
+
+                        logger.info(f"Downloaded updater.exe to {target_path}")
+                        return True
+
+            logger.error("updater.exe not found in any release")
+            return False
+
+        except Exception as e:
+            logger.exception(f"Failed to download updater: {e}")
+            return False
 
     def skip_version(self):
         """Mark this version as skipped."""
