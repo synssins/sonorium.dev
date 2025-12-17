@@ -44,8 +44,9 @@ def get_app_dir() -> Path:
     """Get the application root directory (where themes, plugins, config folders are)."""
     import sys
     if getattr(sys, 'frozen', False):
-        # Running as compiled EXE - exe is in app/windows/, app root is parent
-        return Path(sys.executable).parent.parent
+        # Running as compiled EXE - app root is the same folder as the EXE
+        # User places Sonorium.exe in a folder, and themes/, config/, etc. are created there
+        return Path(sys.executable).parent
     else:
         # Running as script - this file is in app/core/sonorium/, app root is app/
         # app/core/sonorium/config.py -> parent = sonorium/, parent.parent = core/, parent.parent.parent = app/
