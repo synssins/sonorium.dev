@@ -574,6 +574,12 @@ def create_app(app_instance: 'SonoriumApp') -> FastAPI:
                 logger.info(f"Network speaker validation: {available}/{len(results)} available")
             else:
                 logger.info("No saved network speakers to validate")
+
+            # Load enabled network speakers from config
+            config = get_config()
+            if config.enabled_network_speakers:
+                logger.info(f"Restoring {len(config.enabled_network_speakers)} enabled network speakers")
+                _app_instance.set_enabled_network_speakers(config.enabled_network_speakers)
         except Exception as e:
             logger.error(f"Failed to validate network speakers on startup: {e}")
 
@@ -725,6 +731,7 @@ def create_app(app_instance: 'SonoriumApp') -> FastAPI:
         if new_speakers_list is not None:
             old_speakers = set(session.speakers)
             new_speakers = set(new_speakers_list)
+            logger.info(f'Session {session_id} speaker comparison: old={old_speakers}, new={new_speakers}, equal={old_speakers == new_speakers}')
             if old_speakers != new_speakers:
                 session.speakers = new_speakers_list
                 session.use_local_speaker = _has_local_speaker(new_speakers_list)
@@ -2054,6 +2061,12 @@ def create_app(app_instance: 'SonoriumApp') -> FastAPI:
 
         if hasattr(_app_instance, 'set_enabled_network_speakers'):
             _app_instance.set_enabled_network_speakers(speaker_ids)
+
+            # Persist to config
+            config = get_config()
+            config.enabled_network_speakers = speaker_ids
+            save_config(config)
+
             return {'status': 'ok', 'enabled': speaker_ids}
         else:
             raise HTTPException(status_code=501, detail='Network speaker management not implemented')

@@ -168,6 +168,9 @@ class AppConfig:
     # Enabled plugins list
     enabled_plugins: list = field(default_factory=list)
 
+    # Enabled network speakers (persisted IDs)
+    enabled_network_speakers: list = field(default_factory=list)
+
     def __post_init__(self):
         if not self.audio_path:
             self.audio_path = str(get_default_audio_dir())
