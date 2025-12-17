@@ -729,7 +729,9 @@ def create_app(app_instance: 'SonoriumApp') -> FastAPI:
                 session.speakers = new_speakers_list
                 session.use_local_speaker = _has_local_speaker(new_speakers_list)
                 speakers_changed = True
-                logger.info(f'Session {session_id} speakers changed: {new_speakers_list}')
+                logger.info(f'Session {session_id} speakers changed: {new_speakers_list}, '
+                           f'old_use_local={old_use_local}, new_use_local={session.use_local_speaker}, '
+                           f'is_playing={session.is_playing}')
 
         # Crossfade to new theme/preset if changed while playing
         if needs_restart and session.is_playing:
