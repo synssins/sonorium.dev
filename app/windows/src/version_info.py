@@ -53,8 +53,9 @@ def generate_version_info(version_str: str) -> str:
     version_string = version_str
 
     # Determine if prerelease
+    # VS_FF_PRERELEASE = 0x2, VS_FF_DEBUG = 0x1
     is_prerelease = 'alpha' in version_str.lower() or 'beta' in version_str.lower()
-    file_flags = "VS_FF_PRERELEASE" if is_prerelease else "0x0"
+    file_flags = "0x2" if is_prerelease else "0x0"
 
     return f'''# UTF-8
 #

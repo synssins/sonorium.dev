@@ -41,15 +41,14 @@ if version_info_script.exists():
         print(result.stdout)
         if result.returncode != 0:
             print(f"Warning: version_info.py failed: {result.stderr}")
-            # Continue without version info
     except Exception as e:
         print(f"Warning: Could not generate version info: {e}")
-        # Continue without version info
 
-if version_file.exists():
-    print(f"Using version file: {version_file}")
-else:
+if not version_file.exists():
     print("Warning: No version file found, building without version info")
+    version_file = None
+else:
+    print(f"Using version file: {version_file}")
 
 # Icon paths - in app/core/
 icon_png = app_dir / 'core' / 'icon.png'
@@ -121,5 +120,5 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=exe_icon,  # Application icon (.ico format for Windows)
-    version=str(version_file) if version_file.exists() and os.name == 'nt' else None,
+    version=str(version_file) if version_file and os.name == 'nt' else None,
 )
