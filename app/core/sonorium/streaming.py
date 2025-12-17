@@ -310,6 +310,21 @@ class NetworkStreamingManager:
 
     # --- DLNA Implementation ---
 
+    def _create_didl_metadata(self, stream_url: str, title: str = "Sonorium") -> str:
+        """Create DIDL-Lite metadata XML for DLNA streaming."""
+        # Escape special characters in URL for XML
+        import html
+        safe_url = html.escape(stream_url)
+        safe_title = html.escape(title)
+
+        return f'''<DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/">
+<item id="1" parentID="0" restricted="1">
+<dc:title>{safe_title}</dc:title>
+<upnp:class>object.item.audioItem.musicTrack</upnp:class>
+<res protocolInfo="http-get:*:audio/mpeg:DLNA.ORG_PN=MP3;DLNA.ORG_OP=01;DLNA.ORG_FLAGS=01700000000000000000000000000000">{safe_url}</res>
+</item>
+</DIDL-Lite>'''
+
     async def _start_dlna(self, session: StreamingSession, speaker_info: dict) -> bool:
         """Start streaming to a DLNA device."""
         try:
@@ -329,21 +344,58 @@ class NetworkStreamingManager:
             factory = UpnpFactory(requester)
 
             device = await factory.async_create_device(location)
+            logger.debug(f"DLNA device created: {device.name}")
 
             # Create DMR (Digital Media Renderer) profile
             dmr = DmrDevice(device, None)
 
             session._device = dmr
 
-            # Set the media URI and play
+            # Log device capabilities
+            logger.debug(f"DLNA device transport state: {dmr.transport_state}")
+
+            # Use the library's helper to construct proper DIDL-Lite metadata
+            # This sets proper DLNA.ORG_PN and flags for streaming
+            try:
+                didl_metadata = await dmr.construct_play_media_metadata(
+                    media_url=session.stream_url,
+                    media_title='Sonorium',
+                    default_mime_type='audio/mpeg',
+                    default_upnp_class='object.item.audioItem.musicTrack',
+                    # Override DLNA features to indicate live streaming
+                    override_dlna_features='DLNA.ORG_PN=MP3;DLNA.ORG_OP=01;DLNA.ORG_FLAGS=01700000000000000000000000000000'
+                )
+                logger.debug(f"Constructed DIDL metadata via library helper")
+            except Exception as meta_err:
+                # Fallback to our own metadata if library method fails
+                logger.warning(f"Could not construct metadata via library: {meta_err}, using fallback")
+                didl_metadata = self._create_didl_metadata(session.stream_url, 'Sonorium')
+
+            logger.debug(f"Setting transport URI: {session.stream_url}")
+
+            # Set the media URI with metadata (API: media_url, media_title, meta_data)
             await dmr.async_set_transport_uri(
                 session.stream_url,
                 'Sonorium',
-                'audio/mpeg'
+                didl_metadata
             )
+
+            # Small delay to allow device to process
+            await asyncio.sleep(0.5)
+
+            # Check state after setting URI
+            logger.debug(f"DLNA transport state after SetAVTransportURI: {dmr.transport_state}")
+
+            # Send play command
             await dmr.async_play()
 
+            # Another small delay
+            await asyncio.sleep(0.5)
+
+            # Log final state
             logger.info(f"DLNA device now playing {session.stream_url}")
+            logger.debug(f"DLNA transport state after Play: {dmr.transport_state}")
+
             return True
 
         except ImportError as e:
@@ -352,7 +404,7 @@ class NetworkStreamingManager:
             return False
         except Exception as e:
             session.error_message = str(e)
-            logger.error(f"DLNA streaming error: {e}")
+            logger.error(f"DLNA streaming error: {e}", exc_info=True)
             return False
 
     async def _stop_dlna(self, session: StreamingSession):
