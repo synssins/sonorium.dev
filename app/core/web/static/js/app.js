@@ -1754,25 +1754,26 @@ async function loadTrackMixer(themeId, preservePresetSelection = false) {
                 </div>
                 <div class="track-mode-cell">
                     <select class="track-mode-select"
-                            onchange="setTrackPlaybackMode('${escapeHtml(track.name)}', this.value)">
+                            onchange="setTrackPlaybackMode('${escapeHtml(track.name)}', this.value)"
+                            title="How this sound plays: Auto = picks best mode based on file length. Continuous = loops forever. Sparse = plays once then waits minutes before playing again. Presence = fades in and out randomly.">
                         <option value="auto" ${playbackMode === 'auto' ? 'selected' : ''}>Auto</option>
                         <option value="continuous" ${playbackMode === 'continuous' ? 'selected' : ''}>Continuous</option>
                         <option value="sparse" ${playbackMode === 'sparse' ? 'selected' : ''}>Sparse</option>
                         <option value="presence" ${playbackMode === 'presence' ? 'selected' : ''}>Presence</option>
                     </select>
-                    <label class="track-seamless-label">
+                    <label class="track-seamless-label" title="Skip the crossfade when looping. Use this for audio files that already loop smoothly on their own.">
                         <input type="checkbox" ${seamlessLoop ? 'checked' : ''}
                                onchange="setTrackSeamlessLoop('${escapeHtml(track.name)}', this.checked)">
-                        Seamless
+                        Gapless
                     </label>
-                    <label class="track-exclusive-label" title="Only one exclusive track can play at a time">
+                    <label class="track-exclusive-label" title="When checked, only one exclusive sound plays at a time. Great for things like random bird calls or thunder that shouldn't overlap.">
                         <input type="checkbox" ${exclusive ? 'checked' : ''}
                                onchange="setTrackExclusive('${escapeHtml(track.name)}', this.checked)">
                         Exclusive
                     </label>
                 </div>
                 <div class="track-sliders-cell">
-                    <div class="track-slider-row">
+                    <div class="track-slider-row" title="How loud this sound is in the mix. 100% = full volume, 0% = silent.">
                         <span class="track-slider-label">Vol</span>
                         <div class="track-slider-wrapper">
                             <input type="range" class="track-slider track-volume-slider"
@@ -1782,7 +1783,7 @@ async function loadTrackMixer(themeId, preservePresetSelection = false) {
                         </div>
                         <span class="track-slider-value track-volume-value">${volumePercent}%</span>
                     </div>
-                    <div class="track-slider-row">
+                    <div class="track-slider-row" title="How often this sound plays. For sparse sounds: 100% = every ~3 min, 10% = every ~27 min (with random variation). For presence mode: higher = more often audible.">
                         <span class="track-slider-label">Pres</span>
                         <div class="track-slider-wrapper">
                             <input type="range" class="track-slider track-presence-slider"

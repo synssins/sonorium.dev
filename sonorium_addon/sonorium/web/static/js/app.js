@@ -111,6 +111,11 @@ async function loadChannels() {
 function showView(viewName) {
     currentView = viewName;
 
+    // Close mobile sidebar after selection (768px breakpoint)
+    if (window.innerWidth <= 768) {
+        closeSidebar();
+    }
+
     // Update nav items - clear all active states
     document.querySelectorAll('.nav-item').forEach(item => {
         item.classList.remove('active');
@@ -227,7 +232,14 @@ function toggleNavSection(sectionId) {
 }
 
 function toggleSidebar() {
-    document.getElementById('sidebar').classList.toggle('open');
+    const sidebar = document.getElementById('sidebar');
+    sidebar.classList.toggle('open');
+    document.body.classList.toggle('sidebar-open', sidebar.classList.contains('open'));
+}
+
+function closeSidebar() {
+    document.getElementById('sidebar').classList.remove('open');
+    document.body.classList.remove('sidebar-open');
 }
 
 // Sessions
@@ -1508,25 +1520,26 @@ async function loadTrackMixer(themeId, preservePresetSelection = false) {
                 </div>
                 <div class="track-mode-cell">
                     <select class="track-mode-select"
-                            onchange="setTrackPlaybackMode('${escapeHtml(track.name)}', this.value)">
+                            onchange="setTrackPlaybackMode('${escapeHtml(track.name)}', this.value)"
+                            title="How this sound plays: Auto = picks best mode based on file length. Continuous = loops forever. Sparse = plays once then waits minutes before playing again. Presence = fades in and out randomly.">
                         <option value="auto" ${playbackMode === 'auto' ? 'selected' : ''}>Auto</option>
                         <option value="continuous" ${playbackMode === 'continuous' ? 'selected' : ''}>Continuous</option>
                         <option value="sparse" ${playbackMode === 'sparse' ? 'selected' : ''}>Sparse</option>
                         <option value="presence" ${playbackMode === 'presence' ? 'selected' : ''}>Presence</option>
                     </select>
-                    <label class="track-seamless-label">
+                    <label class="track-seamless-label" title="Skip the crossfade when looping. Use this for audio files that already loop smoothly on their own.">
                         <input type="checkbox" ${seamlessLoop ? 'checked' : ''}
                                onchange="setTrackSeamlessLoop('${escapeHtml(track.name)}', this.checked)">
-                        Seamless
+                        Gapless
                     </label>
-                    <label class="track-exclusive-label" title="Only one exclusive track can play at a time">
+                    <label class="track-exclusive-label" title="When checked, only one exclusive sound plays at a time. Great for things like random bird calls or thunder that shouldn't overlap.">
                         <input type="checkbox" ${exclusive ? 'checked' : ''}
                                onchange="setTrackExclusive('${escapeHtml(track.name)}', this.checked)">
                         Exclusive
                     </label>
                 </div>
                 <div class="track-sliders-cell">
-                    <div class="track-slider-row">
+                    <div class="track-slider-row" title="How loud this sound is in the mix. 100% = full volume, 0% = silent.">
                         <span class="track-slider-label">Vol</span>
                         <div class="track-slider-wrapper">
                             <input type="range" class="track-slider track-volume-slider"
@@ -1536,7 +1549,7 @@ async function loadTrackMixer(themeId, preservePresetSelection = false) {
                         </div>
                         <span class="track-slider-value track-volume-value">${volumePercent}%</span>
                     </div>
-                    <div class="track-slider-row">
+                    <div class="track-slider-row" title="How often this sound plays. For sparse sounds: 100% = every ~3 min, 10% = every ~27 min (with random variation). For presence mode: higher = more often audible.">
                         <span class="track-slider-label">Pres</span>
                         <div class="track-slider-wrapper">
                             <input type="range" class="track-slider track-presence-slider"
@@ -2507,6 +2520,7 @@ async function createTheme() {
         // Refresh themes list
         await loadThemes();
         renderThemesBrowser();
+        renderSessions();  // Update channel dropdowns with new theme
 
         closeThemeCreateModal();
         showToast(`Theme "${name}" created successfully!`, 'success');
@@ -2614,6 +2628,7 @@ function importThemeZip() {
             await api('POST', '/themes/refresh');
             await loadThemes();
             renderThemesBrowser();
+            renderSessions();  // Update channel dropdowns with new theme
 
             showToast(`Imported "${result.theme_folder}" (${result.files_extracted} files)`, 'success');
         } catch (error) {
