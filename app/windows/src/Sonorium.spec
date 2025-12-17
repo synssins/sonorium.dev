@@ -27,12 +27,29 @@ project_dir = app_dir.parent  # SonoriumDev/ or repo root
 
 # Generate version info file before build
 version_info_script = spec_dir / 'version_info.py'
-if version_info_script.exists():
-    print("Generating version info...")
-    subprocess.run([sys.executable, str(version_info_script)], cwd=str(spec_dir), check=True)
-
-# Version info file path
 version_file = spec_dir / 'version.txt'
+
+if version_info_script.exists():
+    print(f"Generating version info from {version_info_script}...")
+    try:
+        result = subprocess.run(
+            [sys.executable, str(version_info_script)],
+            cwd=str(spec_dir),
+            capture_output=True,
+            text=True
+        )
+        print(result.stdout)
+        if result.returncode != 0:
+            print(f"Warning: version_info.py failed: {result.stderr}")
+            # Continue without version info
+    except Exception as e:
+        print(f"Warning: Could not generate version info: {e}")
+        # Continue without version info
+
+if version_file.exists():
+    print(f"Using version file: {version_file}")
+else:
+    print("Warning: No version file found, building without version info")
 
 # Icon paths - in app/core/
 icon_png = app_dir / 'core' / 'icon.png'
