@@ -13,14 +13,17 @@ the application structure around itself and downloads required files.
 """
 
 import json
+import logging
 import os
 import subprocess
 import sys
+import traceback
 import webbrowser
 import zipfile
 import shutil
 import urllib.request
 import urllib.error
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -36,8 +39,72 @@ from PyQt6.QtGui import QIcon, QPixmap, QAction, QDesktopServices, QFont, QTextC
 
 # Constants
 APP_NAME = "Sonorium"
-APP_VERSION = "0.1.1-alpha"
+APP_VERSION = "0.1.2-alpha"
 DEFAULT_PORT = 8008
+
+# Global logger instance
+_logger: Optional[logging.Logger] = None
+
+
+def setup_logging() -> logging.Logger:
+    """Set up logging to file and console."""
+    global _logger
+    if _logger is not None:
+        return _logger
+
+    # Create logs directory
+    logs_dir = get_app_dir() / 'logs'
+    logs_dir.mkdir(parents=True, exist_ok=True)
+
+    # Create logger
+    logger = logging.getLogger('sonorium_launcher')
+    logger.setLevel(logging.DEBUG)
+
+    # Prevent duplicate handlers on reload
+    if logger.handlers:
+        return logger
+
+    # File handler - daily rotating log
+    log_file = logs_dir / f'launcher_{datetime.now().strftime("%Y%m%d")}.log'
+    file_handler = logging.FileHandler(log_file, encoding='utf-8')
+    file_handler.setLevel(logging.DEBUG)
+    file_formatter = logging.Formatter(
+        '%(asctime)s [%(levelname)s] %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    file_handler.setFormatter(file_formatter)
+    logger.addHandler(file_handler)
+
+    # Console handler (for debugging)
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(logging.INFO)
+    console_formatter = logging.Formatter('[%(levelname)s] %(message)s')
+    console_handler.setFormatter(console_formatter)
+    logger.addHandler(console_handler)
+
+    _logger = logger
+
+    # Log startup info
+    logger.info("=" * 60)
+    logger.info(f"Sonorium Launcher v{APP_VERSION} starting")
+    logger.info(f"App directory: {get_app_dir()}")
+    logger.info(f"Python: {sys.version}")
+    logger.info(f"Frozen: {getattr(sys, 'frozen', False)}")
+    if getattr(sys, 'frozen', False):
+        logger.info(f"Executable: {sys.executable}")
+    logger.info("=" * 60)
+
+    return logger
+
+
+def get_logger() -> logging.Logger:
+    """Get the logger instance, creating it if necessary."""
+    global _logger
+    if _logger is None:
+        return setup_logging()
+    return _logger
+
+
 WIKI_URL = "https://github.com/synssins/sonorium/wiki"
 REPO_URL = "https://github.com/synssins/sonorium"
 
@@ -135,9 +202,11 @@ class SetupThread(QThread):
     def __init__(self, app_dir: Path):
         super().__init__()
         self.app_dir = app_dir
+        self.logger = get_logger()
 
     def _get_download_url(self) -> str:
         """Get the core.zip download URL from GitHub Releases API."""
+        self.logger.debug(f"Fetching releases from: {RELEASES_API_URL}")
         try:
             req = urllib.request.Request(
                 RELEASES_API_URL,
@@ -145,61 +214,87 @@ class SetupThread(QThread):
             )
             with urllib.request.urlopen(req, timeout=10) as response:
                 releases = json.loads(response.read().decode('utf-8'))
+                self.logger.debug(f"Found {len(releases)} releases")
                 # Get the first (most recent) release that has core.zip
                 for release in releases:
+                    tag = release.get('tag_name', 'unknown')
                     for asset in release.get('assets', []):
                         if asset.get('name') == 'core.zip':
-                            return asset.get('browser_download_url')
-        except Exception:
-            pass
+                            url = asset.get('browser_download_url')
+                            self.logger.info(f"Found core.zip in release {tag}: {url}")
+                            return url
+                self.logger.warning("No core.zip found in any release")
+        except Exception as e:
+            self.logger.error(f"Failed to fetch releases: {e}")
         # Fallback to direct release URL
+        self.logger.info(f"Using fallback URL: {CORE_ZIP_FALLBACK}")
         return CORE_ZIP_FALLBACK
 
     def run(self):
         """Download and extract core files from GitHub Releases."""
+        self.logger.info("=== First-run setup starting ===")
         try:
             self.progress.emit("Creating folder structure...", 5)
+            self.logger.info("Creating folder structure...")
             create_folder_structure()
+            self.logger.info(f"Folders created in: {self.app_dir}")
 
             self.progress.emit("Finding latest release...", 10)
+            self.logger.info("Finding latest release...")
             download_url = self._get_download_url()
 
             self.progress.emit("Downloading core files...", 15)
+            self.logger.info(f"Downloading from: {download_url}")
 
             # Download core.zip from releases
             zip_path = self.app_dir / 'core_download.zip'
             try:
                 req = urllib.request.Request(download_url, headers={'User-Agent': 'Sonorium-Launcher'})
                 with urllib.request.urlopen(req, timeout=60) as response:
+                    content_length = response.headers.get('Content-Length', 'unknown')
+                    self.logger.info(f"Download size: {content_length} bytes")
+                    data = response.read()
                     with open(zip_path, 'wb') as f:
-                        f.write(response.read())
+                        f.write(data)
+                    self.logger.info(f"Downloaded {len(data)} bytes to {zip_path}")
             except urllib.error.URLError as e:
+                self.logger.error(f"Download failed: {e}")
                 self.finished_setup.emit(False, f"Failed to download: {e}")
                 return
 
             self.progress.emit("Extracting files...", 60)
+            self.logger.info(f"Extracting {zip_path} to {self.app_dir}")
 
             # Extract the archive - core.zip contains core/ and themes/ at root level
             with zipfile.ZipFile(zip_path, 'r') as zf:
+                file_list = zf.namelist()
+                self.logger.debug(f"Archive contains {len(file_list)} files")
                 zf.extractall(self.app_dir)
+            self.logger.info("Extraction complete")
 
             self.progress.emit("Verifying installation...", 85)
 
             # Verify core was extracted
             main_script = self.app_dir / 'core' / 'sonorium' / 'main.py'
+            self.logger.info(f"Checking for main script: {main_script}")
             if not main_script.exists():
+                self.logger.error(f"Main script not found: {main_script}")
                 self.finished_setup.emit(False, "Core files not found after extraction")
                 return
+            self.logger.info("Verification passed - main.py found")
 
             self.progress.emit("Cleaning up...", 95)
 
             # Clean up temp files
             zip_path.unlink(missing_ok=True)
+            self.logger.info("Cleaned up temp files")
 
             self.progress.emit("Setup complete!", 100)
+            self.logger.info("=== Setup completed successfully ===")
             self.finished_setup.emit(True, "Setup completed successfully")
 
         except Exception as e:
+            self.logger.exception(f"Setup failed with exception: {e}")
             self.finished_setup.emit(False, f"Setup failed: {e}")
 
 
@@ -216,9 +311,11 @@ class ServerThread(QThread):
         self.port = port
         self.process: Optional[QProcess] = None
         self._stop_requested = False
+        self.logger = get_logger()
 
     def run(self):
         """Run the server process."""
+        self.logger.info("ServerThread.run() starting")
         self.process = QProcess()
         self.process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
         self.process.readyReadStandardOutput.connect(self._handle_output)
@@ -232,6 +329,7 @@ class ServerThread(QThread):
         core_dir = get_core_dir()
         env.insert('PYTHONPATH', str(core_dir))
         self.process.setProcessEnvironment(env)
+        self.logger.debug(f"PYTHONPATH set to: {core_dir}")
 
         # Find Python executable
         app_dir = get_app_dir()
@@ -240,32 +338,41 @@ class ServerThread(QThread):
             python_exe = app_dir / 'python' / 'python.exe'
             if not python_exe.exists():
                 # Fallback to system Python
+                self.logger.info("Embedded Python not found, using system Python")
                 python_exe = 'python'
+            else:
+                self.logger.info(f"Using embedded Python: {python_exe}")
         else:
             python_exe = sys.executable
+            self.logger.info(f"Using development Python: {python_exe}")
 
         # Start the server
         main_script = core_dir / 'sonorium' / 'main.py'
 
         if not main_script.exists():
+            self.logger.error(f"Core not found: {main_script}")
             self.error_occurred.emit(f"Core not found: {main_script}")
             return
 
         args = [str(main_script), '--no-tray', '--no-browser', '--port', str(self.port)]
+        self.logger.info(f"Launching: {python_exe} {' '.join(args)}")
 
         self.output_received.emit(f"Starting server on port {self.port}...")
         self.process.start(str(python_exe), args)
 
         if not self.process.waitForStarted(5000):
+            self.logger.error("Failed to start server process (timeout)")
             self.error_occurred.emit("Failed to start server process")
             return
 
+        self.logger.info("Server process started successfully")
         self.server_started.emit()
 
         # Wait for process to finish
         while not self._stop_requested and self.process.state() != QProcess.ProcessState.NotRunning:
             self.process.waitForFinished(100)
 
+        self.logger.info("Server process exited")
         self.server_stopped.emit()
 
     def _handle_output(self):
@@ -275,17 +382,23 @@ class ServerThread(QThread):
             for line in data.strip().split('\n'):
                 if line:
                     self.output_received.emit(line)
+                    # Also log server output
+                    self.logger.debug(f"[server] {line}")
 
     def _handle_finished(self, exit_code, exit_status):
         """Handle server process finished."""
+        self.logger.info(f"Server process finished: exit_code={exit_code}, status={exit_status}")
         self.output_received.emit(f"Server stopped (exit code: {exit_code})")
 
     def stop(self):
         """Stop the server process."""
+        self.logger.info("ServerThread.stop() called")
         self._stop_requested = True
         if self.process and self.process.state() != QProcess.ProcessState.NotRunning:
+            self.logger.info("Terminating server process...")
             self.process.terminate()
             if not self.process.waitForFinished(3000):
+                self.logger.warning("Server didn't terminate gracefully, killing")
                 self.process.kill()
 
 
@@ -804,28 +917,38 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
+        self.logger = get_logger()
         self.config = load_config()
         self.server_thread: Optional[ServerThread] = None
         self.server_running = False
         self.update_check_thread: Optional[UpdateCheckThread] = None
 
+        self.logger.info("MainWindow initializing...")
         self.setup_ui()
+        self.logger.debug("UI setup complete")
         self.setup_tray()
+        self.logger.debug("Tray setup complete")
 
         # Auto-start server if configured
         if self.config.get('auto_start_server', True):
+            self.logger.info("Auto-start server enabled, scheduling start")
             QTimer.singleShot(500, self.start_server)
 
         # Start minimized if configured
         if self.config.get('start_minimized', False):
             if self.config.get('minimize_to_tray', True):
+                self.logger.info("Start minimized to tray")
                 QTimer.singleShot(100, self.hide)
             else:
+                self.logger.info("Start minimized to taskbar")
                 QTimer.singleShot(100, self.showMinimized)
 
         # Check for updates after a short delay
         if self.config.get('check_updates_on_startup', True):
+            self.logger.info("Scheduling update check")
             QTimer.singleShot(3000, self.check_for_updates)
+
+        self.logger.info("MainWindow initialization complete")
 
     def check_for_updates(self, silent: bool = True):
         """Check for updates from GitHub."""
@@ -1041,29 +1164,37 @@ class MainWindow(QMainWindow):
 
     def start_server(self):
         """Start the server."""
+        self.logger.info("start_server() called")
         if self.server_thread and self.server_thread.isRunning():
+            self.logger.debug("Server already running, ignoring start request")
             return
 
         port = self.config.get('server_port', DEFAULT_PORT)
+        self.logger.info(f"Starting server on port {port}")
         self.server_thread = ServerThread(port)
         self.server_thread.output_received.connect(self.append_log)
         self.server_thread.server_started.connect(self.on_server_started)
         self.server_thread.server_stopped.connect(self.on_server_stopped)
         self.server_thread.error_occurred.connect(self.on_server_error)
         self.server_thread.start()
+        self.logger.debug("ServerThread started")
 
         self.start_stop_btn.setText("Starting...")
         self.start_stop_btn.setEnabled(False)
 
     def stop_server(self):
         """Stop the server."""
+        self.logger.info("stop_server() called")
         if self.server_thread:
             self.append_log("Stopping server...")
+            self.logger.info("Requesting server stop...")
             self.server_thread.stop()
             self.server_thread.wait(5000)
+            self.logger.info("Server stop completed")
 
     def on_server_started(self):
         """Handle server started."""
+        self.logger.info("Server started successfully")
         self.server_running = True
         self.start_stop_btn.setText("Stop Server")
         self.start_stop_btn.setEnabled(True)
@@ -1075,6 +1206,7 @@ class MainWindow(QMainWindow):
 
     def on_server_stopped(self):
         """Handle server stopped."""
+        self.logger.info("Server stopped")
         self.server_running = False
         self.start_stop_btn.setText("Start Server")
         self.start_stop_btn.setEnabled(True)
@@ -1086,6 +1218,7 @@ class MainWindow(QMainWindow):
 
     def on_server_error(self, error: str):
         """Handle server error."""
+        self.logger.error(f"Server error: {error}")
         self.append_log(f"ERROR: {error}")
         self.start_stop_btn.setText("Start Server")
         self.start_stop_btn.setEnabled(True)
@@ -1146,40 +1279,73 @@ def get_icon() -> Optional[QIcon]:
 
 def main():
     """Main entry point."""
-    app = QApplication(sys.argv)
-    app.setApplicationName(APP_NAME)
-    app.setApplicationVersion(APP_VERSION)
+    # Initialize logging FIRST - before anything else
+    logger = setup_logging()
 
-    # Set style
-    app.setStyle("Fusion")
+    try:
+        logger.info("Creating QApplication...")
+        app = QApplication(sys.argv)
+        app.setApplicationName(APP_NAME)
+        app.setApplicationVersion(APP_VERSION)
 
-    # Check if first run - need to download core files
-    if is_first_run():
-        setup_dialog = SetupDialog()
-        setup_dialog.show()
-        setup_dialog.start_setup()
+        # Set style
+        app.setStyle("Fusion")
+        logger.info("QApplication created successfully")
 
-        if setup_dialog.exec() != QDialog.DialogCode.Accepted:
-            # Setup failed or cancelled
-            QMessageBox.critical(None, "Setup Failed",
-                               "Sonorium setup was not completed.\n\n"
-                               "Please check your internet connection and try again.")
-            sys.exit(1)
+        # Check if first run - need to download core files
+        if is_first_run():
+            logger.info("First run detected - starting setup")
+            setup_dialog = SetupDialog()
+            setup_dialog.show()
+            setup_dialog.start_setup()
 
-    # Set application-wide icon (now that core is extracted)
-    icon = get_icon()
-    if icon:
-        app.setWindowIcon(icon)
+            if setup_dialog.exec() != QDialog.DialogCode.Accepted:
+                # Setup failed or cancelled
+                logger.error("Setup failed or was cancelled")
+                QMessageBox.critical(None, "Setup Failed",
+                                   "Sonorium setup was not completed.\n\n"
+                                   "Please check your internet connection and try again.")
+                sys.exit(1)
+            logger.info("Setup completed successfully")
+        else:
+            logger.info("Existing installation detected")
 
-    # Create and show main window
-    window = MainWindow()
+        # Set application-wide icon (now that core is extracted)
+        icon = get_icon()
+        if icon:
+            app.setWindowIcon(icon)
+            logger.debug("Application icon set")
+        else:
+            logger.warning("No application icon found")
 
-    # Show window unless start minimized
-    config = load_config()
-    if not config.get('start_minimized', False):
-        window.show()
+        # Create and show main window
+        logger.info("Creating main window...")
+        window = MainWindow()
+        logger.info("Main window created")
 
-    sys.exit(app.exec())
+        # Show window unless start minimized
+        config = load_config()
+        if not config.get('start_minimized', False):
+            window.show()
+            logger.info("Main window shown")
+        else:
+            logger.info("Starting minimized (per config)")
+
+        logger.info("Entering Qt event loop")
+        exit_code = app.exec()
+        logger.info(f"Application exiting with code {exit_code}")
+        sys.exit(exit_code)
+
+    except Exception as e:
+        logger.exception(f"Fatal error in main(): {e}")
+        # Try to show error dialog
+        try:
+            QMessageBox.critical(None, "Fatal Error",
+                               f"Sonorium encountered a fatal error:\n\n{e}\n\n"
+                               f"Check logs folder for details.")
+        except:
+            pass
+        sys.exit(1)
 
 
 if __name__ == '__main__':
