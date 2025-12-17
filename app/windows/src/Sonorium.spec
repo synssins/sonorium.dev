@@ -23,19 +23,27 @@ windows_dir = spec_dir.parent  # app/windows/
 app_dir = windows_dir.parent  # app/
 project_dir = app_dir.parent  # SonoriumDev/ or repo root
 
-# Icon paths (required) - in app/core/
-icon_path = app_dir / 'core' / 'icon.png'
+# Icon paths - in app/core/
+icon_png = app_dir / 'core' / 'icon.png'
+icon_ico = app_dir / 'core' / 'icon.ico'
 logo_path = app_dir / 'core' / 'logo.png'
+
+# Collect data files - only include if they exist
+datas_list = []
+if icon_png.exists():
+    datas_list.append((str(icon_png), '.'))
+if logo_path.exists():
+    datas_list.append((str(logo_path), '.'))
+
+# EXE icon - use .ico if exists, otherwise None
+exe_icon = str(icon_ico) if icon_ico.exists() else None
 
 # Analysis - gather all dependencies
 a = Analysis(
     [str(spec_dir / 'launcher.py')],
     pathex=[str(spec_dir)],
     binaries=[],
-    datas=[
-        (str(icon_path), '.'),
-        (str(logo_path), '.'),
-    ],
+    datas=datas_list,
     hiddenimports=[
         'PyQt6.QtCore',
         'PyQt6.QtGui',
@@ -84,7 +92,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=str(icon_path),  # Application icon
+    icon=exe_icon,  # Application icon (.ico format for Windows)
     version_info={
         'FileVersion': '1.0.0.0',
         'ProductVersion': '1.0.0.0',
