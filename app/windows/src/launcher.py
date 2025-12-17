@@ -41,10 +41,10 @@ DEFAULT_PORT = 8008
 WIKI_URL = "https://github.com/synssins/sonorium/wiki"
 REPO_URL = "https://github.com/synssins/sonorium"
 
-# GitHub Releases URL for core.zip (contains core/ and themes/ folders)
-# Uses latest release - will be redirected to actual download URL
-RELEASES_API_URL = "https://api.github.com/repos/synssins/sonorium/releases/latest"
-CORE_ZIP_FALLBACK = "https://github.com/synssins/sonorium/releases/latest/download/core.zip"
+# GitHub Releases API URL (includes prereleases)
+# Uses /releases to get all releases including alpha/beta
+RELEASES_API_URL = "https://api.github.com/repos/synssins/sonorium/releases"
+CORE_ZIP_FALLBACK = "https://github.com/synssins/sonorium/releases/download/v0.1.0-alpha/core.zip"
 
 # Required folder structure (relative to app root)
 REQUIRED_FOLDERS = ['core', 'config', 'logs', 'themes', 'plugins']
@@ -144,13 +144,15 @@ class SetupThread(QThread):
                 headers={'Accept': 'application/vnd.github.v3+json', 'User-Agent': 'Sonorium-Launcher'}
             )
             with urllib.request.urlopen(req, timeout=10) as response:
-                data = json.loads(response.read().decode('utf-8'))
-                for asset in data.get('assets', []):
-                    if asset.get('name') == 'core.zip':
-                        return asset.get('browser_download_url')
+                releases = json.loads(response.read().decode('utf-8'))
+                # Get the first (most recent) release that has core.zip
+                for release in releases:
+                    for asset in release.get('assets', []):
+                        if asset.get('name') == 'core.zip':
+                            return asset.get('browser_download_url')
         except Exception:
             pass
-        # Fallback to direct latest release URL
+        # Fallback to direct release URL
         return CORE_ZIP_FALLBACK
 
     def run(self):
