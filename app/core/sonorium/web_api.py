@@ -1934,7 +1934,11 @@ def create_app(app_instance: 'SonoriumApp') -> FastAPI:
         output_devices = []
 
         current_device = _app_instance._current_device
-        current_index = current_device.id if current_device else sd.default.device[1]
+        # Return -1 if no device selected (local audio disabled)
+        if current_device is None:
+            current_index = -1
+        else:
+            current_index = current_device.id
 
         for i, dev in enumerate(devices):
             # Only output devices (max_output_channels > 0)
@@ -1963,9 +1967,17 @@ def create_app(app_instance: 'SonoriumApp') -> FastAPI:
             if device_index == -1:
                 # Disable local audio output
                 _app_instance.disable_local_audio()
+                # Persist to config
+                config = get_config()
+                config.audio_device_id = -1
+                save_config(config)
                 return {'status': 'ok', 'device_index': -1, 'message': 'Local audio disabled'}
             else:
                 _app_instance.set_audio_device(device_index)
+                # Persist to config
+                config = get_config()
+                config.audio_device_id = device_index
+                save_config(config)
                 return {'status': 'ok', 'device_index': device_index}
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))

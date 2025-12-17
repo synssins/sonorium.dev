@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from sonorium.audio_output import AudioOutputDevice, AudioMixer
+from sonorium.config import get_config
 from sonorium.obs import logger
 from sonorium.recording import RecordingMetadata, ExclusionGroupCoordinator
 
@@ -138,11 +139,32 @@ class SonoriumApp:
     def _init_audio(self):
         """Initialize audio output system."""
         try:
+            # Check if local audio was disabled in config
+            config = get_config()
+            if config.audio_device_id == -1:
+                logger.info('Local audio disabled (from config)')
+                self._mixer = None
+                self._current_device = None
+                return
+
             devices = AudioOutputDevice.list_devices()
             if devices:
-                default = next((d for d in devices if d['is_default']), devices[0])
-                self._current_device = AudioDevice.from_dict(default)
-                logger.info(f'Default audio device: {self._current_device.name}')
+                # Use saved device if set, otherwise default
+                if config.audio_device_id is not None and config.audio_device_id != -1:
+                    # Find saved device
+                    saved = next((d for d in devices if d['id'] == config.audio_device_id), None)
+                    if saved:
+                        self._current_device = AudioDevice.from_dict(saved)
+                        logger.info(f'Restored audio device: {self._current_device.name}')
+                    else:
+                        # Saved device not found, use default
+                        default = next((d for d in devices if d['is_default']), devices[0])
+                        self._current_device = AudioDevice.from_dict(default)
+                        logger.info(f'Default audio device: {self._current_device.name}')
+                else:
+                    default = next((d for d in devices if d['is_default']), devices[0])
+                    self._current_device = AudioDevice.from_dict(default)
+                    logger.info(f'Default audio device: {self._current_device.name}')
 
             self._mixer = AudioMixer()
         except Exception as e:
