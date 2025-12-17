@@ -15,6 +15,8 @@ Output: app/windows/Sonorium.exe
 """
 
 import os
+import subprocess
+import sys
 from pathlib import Path
 
 # Get the spec file directory (app/windows/src/)
@@ -22,6 +24,15 @@ spec_dir = Path(SPECPATH)
 windows_dir = spec_dir.parent  # app/windows/
 app_dir = windows_dir.parent  # app/
 project_dir = app_dir.parent  # SonoriumDev/ or repo root
+
+# Generate version info file before build
+version_info_script = spec_dir / 'version_info.py'
+if version_info_script.exists():
+    print("Generating version info...")
+    subprocess.run([sys.executable, str(version_info_script)], cwd=str(spec_dir), check=True)
+
+# Version info file path
+version_file = spec_dir / 'version.txt'
 
 # Icon paths - in app/core/
 icon_png = app_dir / 'core' / 'icon.png'
@@ -93,14 +104,5 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=exe_icon,  # Application icon (.ico format for Windows)
-    version_info={
-        'FileVersion': '1.0.0.0',
-        'ProductVersion': '1.0.0.0',
-        'FileDescription': 'Sonorium - Ambient Soundscape Mixer',
-        'InternalName': 'Sonorium',
-        'LegalCopyright': 'Copyright 2025',
-        'OriginalFilename': 'Sonorium.exe',
-        'ProductName': 'Sonorium',
-        'CompanyName': '',
-    } if os.name == 'nt' else None,
+    version=str(version_file) if version_file.exists() and os.name == 'nt' else None,
 )

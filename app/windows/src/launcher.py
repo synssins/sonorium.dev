@@ -39,7 +39,7 @@ from PyQt6.QtGui import QIcon, QPixmap, QAction, QDesktopServices, QFont, QTextC
 
 # Constants
 APP_NAME = "Sonorium"
-APP_VERSION = "0.1.3-alpha"
+APP_VERSION = "0.1.4-alpha"
 DEFAULT_PORT = 8008
 
 # Global logger instance
@@ -480,8 +480,26 @@ class UpdateCheckThread(QThread):
     no_update = pyqtSignal()
     error = pyqtSignal(str)
 
+    def _parse_version(self, v: str) -> tuple:
+        """Parse version string for comparison.
+
+        Handles versions like "0.1.3-alpha" -> (0, 1, 3, 'alpha')
+        Numbers are compared numerically, strings alphabetically.
+        """
+        parts = v.replace('-', '.').split('.')
+        result = []
+        for p in parts:
+            try:
+                result.append(int(p))
+            except ValueError:
+                result.append(p)
+        return tuple(result)
+
     def run(self):
         """Check GitHub releases for updates."""
+        logger = get_logger()
+        logger.info(f"Checking for updates (current version: {APP_VERSION})")
+
         try:
             req = urllib.request.Request(
                 RELEASES_API_URL,
@@ -490,30 +508,25 @@ class UpdateCheckThread(QThread):
             with urllib.request.urlopen(req, timeout=15) as response:
                 releases = json.loads(response.read().decode('utf-8'))
 
-            # Find first non-draft release
+            logger.debug(f"Found {len(releases)} releases")
+            current = APP_VERSION.lstrip('v')
+            current_parsed = self._parse_version(current)
+            logger.debug(f"Current version parsed: {current_parsed}")
+
+            # Check ALL releases for a newer version (releases are sorted newest first)
             for release in releases:
                 if release.get('draft', False):
                     continue
 
                 tag = release.get('tag_name', '').lstrip('v')
-                current = APP_VERSION.lstrip('v')
+                tag_parsed = self._parse_version(tag)
+                logger.debug(f"Comparing {tag} ({tag_parsed}) > {current} ({current_parsed})")
 
-                # Parse versions for comparison
-                def parse_ver(v):
-                    # Handle versions like "0.1.0-alpha" -> (0, 1, 0, 'alpha')
-                    parts = v.replace('-', '.').split('.')
-                    result = []
-                    for p in parts:
-                        try:
-                            result.append(int(p))
-                        except ValueError:
-                            result.append(p)
-                    return tuple(result)
-
-                if parse_ver(tag) > parse_ver(current):
-                    # Find Sonorium.exe asset
+                if tag_parsed > current_parsed:
+                    # Found a newer version - check if it has Sonorium.exe
                     for asset in release.get('assets', []):
                         if asset.get('name', '').lower() == 'sonorium.exe':
+                            logger.info(f"Update available: {tag}")
                             self.update_available.emit({
                                 'version': tag,
                                 'tag_name': release.get('tag_name'),
@@ -524,14 +537,16 @@ class UpdateCheckThread(QThread):
                                 'html_url': release.get('html_url', ''),
                             })
                             return
+                    # Has newer version but no Sonorium.exe - continue checking older releases
+                    logger.debug(f"Release {tag} has no Sonorium.exe, checking older releases")
+                    continue
 
-                # If we get here, current version is up to date
-                self.no_update.emit()
-                return
-
+            # No newer version found with Sonorium.exe
+            logger.info("No updates available")
             self.no_update.emit()
 
         except Exception as e:
+            logger.error(f"Update check failed: {e}")
             self.error.emit(str(e))
 
 
