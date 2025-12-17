@@ -175,6 +175,18 @@ class SonoriumApp:
             logger.error(f'Failed to set audio device: {e}')
             raise
 
+    def disable_local_audio(self):
+        """Disable local audio output (for network-only streaming)."""
+        was_playing = self.playback_state == 'playing'
+
+        if was_playing:
+            self.stop()
+
+        # Clear the mixer and current device
+        self._mixer = None
+        self._current_device = None
+        logger.info('Local audio disabled')
+
     def get_enabled_network_speakers(self) -> list[str]:
         """Get list of enabled network speaker IDs."""
         return list(self._enabled_network_speakers)
