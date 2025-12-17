@@ -39,7 +39,7 @@ from PyQt6.QtGui import QIcon, QPixmap, QAction, QDesktopServices, QFont, QTextC
 
 # Constants
 APP_NAME = "Sonorium"
-APP_VERSION = "0.1.8-alpha"
+APP_VERSION = "0.1.9-alpha"
 DEFAULT_PORT = 8008
 
 # Global logger instance
@@ -191,6 +191,62 @@ def save_config(config: dict):
     config_path.parent.mkdir(parents=True, exist_ok=True)
     with open(config_path, 'w', encoding='utf-8') as f:
         json.dump(config, f, indent=2)
+
+
+def get_recovery_path() -> Path:
+    """Get path to recovery.json (used to restore playback after update)."""
+    return get_app_dir() / 'config' / 'recovery.json'
+
+
+def save_recovery_state(state: dict):
+    """Save playback state for recovery after update."""
+    recovery_path = get_recovery_path()
+    recovery_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(recovery_path, 'w', encoding='utf-8') as f:
+        json.dump(state, f, indent=2)
+    get_logger().info(f"Saved recovery state: {state}")
+
+
+def clear_recovery_state():
+    """Remove recovery state file (used after successful recovery or normal shutdown)."""
+    recovery_path = get_recovery_path()
+    if recovery_path.exists():
+        recovery_path.unlink()
+        get_logger().info("Cleared recovery state")
+
+
+def get_current_playback_state() -> dict | None:
+    """Query the core server for current playback state."""
+    logger = get_logger()
+    config = load_config()
+    port = config.get('server_port', DEFAULT_PORT)
+
+    try:
+        req = urllib.request.Request(
+            f'http://127.0.0.1:{port}/api/status',
+            headers={'Accept': 'application/json'}
+        )
+        with urllib.request.urlopen(req, timeout=5) as response:
+            data = json.loads(response.read().decode('utf-8'))
+
+            # Check if something is playing
+            if data.get('playback_state') == 'playing':
+                state = {
+                    'theme': data.get('current_theme'),
+                    'preset': data.get('current_preset'),
+                    'volume': data.get('master_volume', 0.8),
+                    'timestamp': datetime.now().isoformat(),
+                    'reason': 'update'
+                }
+                logger.info(f"Current playback state: {state}")
+                return state
+
+        logger.info("No active playback to save")
+        return None
+
+    except Exception as e:
+        logger.warning(f"Could not get playback state: {e}")
+        return None
 
 
 class SetupThread(QThread):
@@ -733,6 +789,14 @@ class UpdateDialog(QDialog):
                                    "Could not download updater.exe.\n"
                                    "Please download it manually from the releases page.")
                 return
+
+        # Save current playback state for recovery after update
+        self.status_label.setText("Saving playback state...")
+        QApplication.processEvents()
+        playback_state = get_current_playback_state()
+        if playback_state:
+            save_recovery_state(playback_state)
+            logger.info("Playback state saved for recovery after update")
 
         logger.info(f"Launching updater: {updater_path}")
         logger.info(f"  --target {current_exe}")

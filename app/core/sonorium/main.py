@@ -17,27 +17,93 @@ from pathlib import Path
 from sonorium.obs import logger
 
 
+def check_recovery_state(config_dir: Path) -> dict | None:
+    """Check for recovery state file and return state if valid."""
+    import json
+    from datetime import datetime
+
+    recovery_path = config_dir / 'recovery.json'
+    if not recovery_path.exists():
+        return None
+
+    try:
+        with open(recovery_path, 'r', encoding='utf-8') as f:
+            state = json.load(f)
+
+        # Validate the recovery state
+        if state.get('reason') != 'update':
+            logger.info("Recovery state found but reason is not 'update', ignoring")
+            recovery_path.unlink()
+            return None
+
+        # Check if the recovery state is recent (within 5 minutes)
+        timestamp = state.get('timestamp')
+        if timestamp:
+            recovery_time = datetime.fromisoformat(timestamp)
+            age = (datetime.now() - recovery_time).total_seconds()
+            if age > 300:  # 5 minutes
+                logger.info(f"Recovery state is too old ({age:.0f}s), ignoring")
+                recovery_path.unlink()
+                return None
+
+        logger.info(f"Valid recovery state found: theme={state.get('theme')}, preset={state.get('preset')}")
+        return state
+
+    except Exception as e:
+        logger.warning(f"Failed to read recovery state: {e}")
+        if recovery_path.exists():
+            recovery_path.unlink()
+        return None
+
+
+def clear_recovery_state(config_dir: Path):
+    """Remove recovery state file after successful recovery."""
+    recovery_path = config_dir / 'recovery.json'
+    if recovery_path.exists():
+        recovery_path.unlink()
+        logger.info("Cleared recovery state")
+
+
 def run_server(host: str = '127.0.0.1', port: int = 8008, open_browser: bool = True):
     """Run the Sonorium web server."""
     import uvicorn
-    from sonorium.config import get_config, copy_bundled_themes
+    from sonorium.config import get_config, get_config_dir, copy_bundled_themes
     from sonorium.app_device import SonoriumApp
     from sonorium.web_api import create_app, set_plugin_manager
     from sonorium.plugins.manager import PluginManager
 
     config = get_config()
+    config_dir = get_config_dir()
 
     # Copy bundled themes to the themes directory if they don't exist
     copy_bundled_themes(Path(config.audio_path))
 
+    # Check for recovery state (from update)
+    recovery_state = check_recovery_state(config_dir)
+
     # Initialize the application
     app_instance = SonoriumApp(path_audio=config.audio_path)
 
-    # Set volume from config
-    app_instance.set_volume(config.master_volume)
+    # Set volume from config (or recovery state)
+    if recovery_state and recovery_state.get('volume'):
+        app_instance.set_volume(recovery_state['volume'])
+    else:
+        app_instance.set_volume(config.master_volume)
 
-    # Auto-play last theme if configured
-    if config.auto_play_on_start and config.last_theme:
+    # Recovery playback takes priority over auto-play
+    if recovery_state and recovery_state.get('theme'):
+        theme_id = recovery_state['theme']
+        preset_id = recovery_state.get('preset')
+        theme = app_instance.get_theme(theme_id)
+        if theme:
+            logger.info(f"Recovering playback: theme={theme_id}, preset={preset_id}")
+            app_instance.play(theme_id, preset_id)
+            clear_recovery_state(config_dir)
+        else:
+            logger.warning(f"Recovery theme '{theme_id}' not found")
+            clear_recovery_state(config_dir)
+    # Auto-play last theme if configured (and no recovery)
+    elif config.auto_play_on_start and config.last_theme:
         theme = app_instance.get_theme(config.last_theme)
         if theme:
             app_instance.play(config.last_theme)
