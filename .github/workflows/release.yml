@@ -48,6 +48,17 @@ jobs:
         run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
         shell: bash
 
+      - name: Get tag message (changelog)
+        id: get_changelog
+        run: |
+          # Get the annotated tag message (changelog)
+          TAG_MESSAGE=$(git tag -l --format='%(contents)' ${GITHUB_REF#refs/tags/})
+          # Use delimiter for multiline output
+          echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
+          echo "$TAG_MESSAGE" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+        shell: bash
+
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
@@ -59,7 +70,9 @@ jobs:
             app/windows/updater.exe
             core.zip
           body: |
-            ## Sonorium ${{ steps.get_version.outputs.VERSION }}
+            ${{ steps.get_changelog.outputs.CHANGELOG }}
+
+            ---
 
             ### Downloads
             - **Sonorium.exe** - Standalone Windows launcher (portable)
