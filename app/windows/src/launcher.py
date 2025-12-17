@@ -36,11 +36,15 @@ from PyQt6.QtGui import QIcon, QPixmap, QAction, QDesktopServices, QFont
 
 # Constants
 APP_NAME = "Sonorium"
-APP_VERSION = "1.0.0"
+APP_VERSION = "0.1.0-alpha"
 DEFAULT_PORT = 8008
 WIKI_URL = "https://github.com/synssins/sonorium/wiki"
 REPO_URL = "https://github.com/synssins/sonorium"
-REPO_ARCHIVE_URL = "https://github.com/synssins/sonorium/archive/refs/heads/dev.zip"
+
+# GitHub Releases URL for core.zip (contains core/ and themes/ folders)
+# Uses latest release - will be redirected to actual download URL
+RELEASES_API_URL = "https://api.github.com/repos/synssins/sonorium/releases/latest"
+CORE_ZIP_FALLBACK = "https://github.com/synssins/sonorium/releases/latest/download/core.zip"
 
 # Required folder structure (relative to app root)
 REQUIRED_FOLDERS = ['core', 'config', 'logs', 'themes', 'plugins']
@@ -123,7 +127,7 @@ def save_config(config: dict):
 
 
 class SetupThread(QThread):
-    """Thread to handle first-run setup (downloading core files)."""
+    """Thread to handle first-run setup (downloading core files from GitHub Releases)."""
 
     progress = pyqtSignal(str, int)  # message, percentage
     finished_setup = pyqtSignal(bool, str)  # success, message
@@ -132,65 +136,63 @@ class SetupThread(QThread):
         super().__init__()
         self.app_dir = app_dir
 
+    def _get_download_url(self) -> str:
+        """Get the core.zip download URL from GitHub Releases API."""
+        try:
+            req = urllib.request.Request(
+                RELEASES_API_URL,
+                headers={'Accept': 'application/vnd.github.v3+json', 'User-Agent': 'Sonorium-Launcher'}
+            )
+            with urllib.request.urlopen(req, timeout=10) as response:
+                data = json.loads(response.read().decode('utf-8'))
+                for asset in data.get('assets', []):
+                    if asset.get('name') == 'core.zip':
+                        return asset.get('browser_download_url')
+        except Exception:
+            pass
+        # Fallback to direct latest release URL
+        return CORE_ZIP_FALLBACK
+
     def run(self):
-        """Download and extract core files from repo."""
+        """Download and extract core files from GitHub Releases."""
         try:
             self.progress.emit("Creating folder structure...", 5)
             create_folder_structure()
 
-            self.progress.emit("Downloading core files from GitHub...", 10)
+            self.progress.emit("Finding latest release...", 10)
+            download_url = self._get_download_url()
 
-            # Download the repo archive
-            zip_path = self.app_dir / 'temp_download.zip'
+            self.progress.emit("Downloading core files...", 15)
+
+            # Download core.zip from releases
+            zip_path = self.app_dir / 'core_download.zip'
             try:
-                urllib.request.urlretrieve(REPO_ARCHIVE_URL, str(zip_path))
+                req = urllib.request.Request(download_url, headers={'User-Agent': 'Sonorium-Launcher'})
+                with urllib.request.urlopen(req, timeout=60) as response:
+                    with open(zip_path, 'wb') as f:
+                        f.write(response.read())
             except urllib.error.URLError as e:
                 self.finished_setup.emit(False, f"Failed to download: {e}")
                 return
 
-            self.progress.emit("Extracting files...", 50)
+            self.progress.emit("Extracting files...", 60)
 
-            # Extract the archive
-            extract_dir = self.app_dir / 'temp_extract'
+            # Extract the archive - core.zip contains core/ and themes/ at root level
             with zipfile.ZipFile(zip_path, 'r') as zf:
-                zf.extractall(extract_dir)
+                zf.extractall(self.app_dir)
 
-            self.progress.emit("Installing core files...", 70)
+            self.progress.emit("Verifying installation...", 85)
 
-            # Find the extracted folder (usually sonorium-dev/)
-            extracted_folders = list(extract_dir.iterdir())
-            if not extracted_folders:
-                self.finished_setup.emit(False, "Downloaded archive is empty")
+            # Verify core was extracted
+            main_script = self.app_dir / 'core' / 'sonorium' / 'main.py'
+            if not main_script.exists():
+                self.finished_setup.emit(False, "Core files not found after extraction")
                 return
 
-            repo_root = extracted_folders[0]
-
-            # Copy app/core contents to our core folder
-            src_core = repo_root / 'app' / 'core'
-            if src_core.exists():
-                dst_core = self.app_dir / 'core'
-                if dst_core.exists():
-                    shutil.rmtree(dst_core)
-                shutil.copytree(src_core, dst_core)
-            else:
-                self.finished_setup.emit(False, "Core folder not found in downloaded archive")
-                return
-
-            # Copy default themes if available
-            src_themes = repo_root / 'app' / 'themes'
-            if src_themes.exists():
-                dst_themes = self.app_dir / 'themes'
-                for theme in src_themes.iterdir():
-                    if theme.is_dir():
-                        dst_theme = dst_themes / theme.name
-                        if not dst_theme.exists():
-                            shutil.copytree(theme, dst_theme)
-
-            self.progress.emit("Cleaning up...", 90)
+            self.progress.emit("Cleaning up...", 95)
 
             # Clean up temp files
             zip_path.unlink(missing_ok=True)
-            shutil.rmtree(extract_dir, ignore_errors=True)
 
             self.progress.emit("Setup complete!", 100)
             self.finished_setup.emit(True, "Setup completed successfully")
