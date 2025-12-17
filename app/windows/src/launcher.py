@@ -553,17 +553,10 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(APP_NAME)
         self.setMinimumSize(600, 450)
 
-        # Set window icon - check multiple locations
-        icon_path = None
-        for path in [get_app_dir() / 'core' / 'icon.png',
-                     get_app_dir() / 'icon.png',
-                     Path(getattr(sys, '_MEIPASS', '')) / 'icon.png']:
-            if path.exists():
-                icon_path = path
-                break
-
-        if icon_path:
-            self.setWindowIcon(QIcon(str(icon_path)))
+        # Set window icon
+        icon = get_icon()
+        if icon:
+            self.setWindowIcon(icon)
 
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -641,17 +634,10 @@ class MainWindow(QMainWindow):
         """Set up system tray icon."""
         self.tray_icon = QSystemTrayIcon(self)
 
-        # Find icon
-        icon_path = None
-        for path in [get_app_dir() / 'core' / 'icon.png',
-                     get_app_dir() / 'icon.png',
-                     Path(getattr(sys, '_MEIPASS', '')) / 'icon.png']:
-            if path.exists():
-                icon_path = path
-                break
-
-        if icon_path:
-            self.tray_icon.setIcon(QIcon(str(icon_path)))
+        # Set tray icon
+        icon = get_icon()
+        if icon:
+            self.tray_icon.setIcon(icon)
         else:
             self.tray_icon.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon))
 
@@ -707,7 +693,8 @@ class MainWindow(QMainWindow):
 
     def tray_activated(self, reason):
         """Handle tray icon activation."""
-        if reason == QSystemTrayIcon.ActivationReason.DoubleClick:
+        if reason in (QSystemTrayIcon.ActivationReason.Trigger,
+                      QSystemTrayIcon.ActivationReason.DoubleClick):
             self.show_and_activate()
 
     def show_and_activate(self):
@@ -818,6 +805,16 @@ class MainWindow(QMainWindow):
         QApplication.quit()
 
 
+def get_icon() -> Optional[QIcon]:
+    """Get the application icon from available locations."""
+    for path in [get_app_dir() / 'core' / 'icon.png',
+                 get_app_dir() / 'icon.png',
+                 Path(getattr(sys, '_MEIPASS', '')) / 'icon.png']:
+        if path.exists():
+            return QIcon(str(path))
+    return None
+
+
 def main():
     """Main entry point."""
     app = QApplication(sys.argv)
@@ -839,6 +836,11 @@ def main():
                                "Sonorium setup was not completed.\n\n"
                                "Please check your internet connection and try again.")
             sys.exit(1)
+
+    # Set application-wide icon (now that core is extracted)
+    icon = get_icon()
+    if icon:
+        app.setWindowIcon(icon)
 
     # Create and show main window
     window = MainWindow()
