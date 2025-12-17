@@ -156,6 +156,7 @@ app/temp/
 app/plugins/
 app/config/
 
-# Launcher source files (not distributed, only EXE is committed)
-app/windows/launcher.py
-app/windows/Sonorium.spec
+# Launcher build artifacts (source in app/windows/src/ is tracked)
+app/windows/build/
+app/windows/Sonorium.exe
+app/windows/__pycache__/

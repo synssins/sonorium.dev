@@ -1,0 +1,67 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'  # Trigger on version tags like v0.1.0-alpha, v1.0.0, etc.
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install PyQt6 pyinstaller
+
+      - name: Build Sonorium.exe
+        run: |
+          cd app/windows/src
+          pyinstaller --distpath .. --workpath ../build --clean Sonorium.spec
+
+      - name: Create core.zip
+        run: |
+          # Create zip with core/ and themes/ folders
+          Compress-Archive -Path app/core, app/themes -DestinationPath core.zip
+        shell: pwsh
+
+      - name: Get version from tag
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        shell: bash
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: Sonorium ${{ steps.get_version.outputs.VERSION }}
+          draft: false
+          prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') }}
+          files: |
+            app/windows/Sonorium.exe
+            core.zip
+          body: |
+            ## Sonorium ${{ steps.get_version.outputs.VERSION }}
+
+            ### Downloads
+            - **Sonorium.exe** - Standalone Windows launcher (portable)
+            - **core.zip** - Core files for manual installation or updates
+
+            ### First-time setup
+            1. Download `Sonorium.exe` to any folder
+            2. Run it - the app will automatically download required files
+
+            ### Manual installation
+            1. Download both files
+            2. Extract `core.zip` to the same folder as `Sonorium.exe`
+            3. Run `Sonorium.exe`
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
