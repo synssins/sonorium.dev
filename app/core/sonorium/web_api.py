@@ -41,15 +41,30 @@ class Session:
     device_id: Optional[int] = None
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
     last_played_at: Optional[str] = None
+    # Speaker selection - list of speaker IDs
+    # 'local' for local audio, 'network_speaker.{id}' for network speakers
+    speakers: list = field(default_factory=lambda: ['local'])
+    use_local_speaker: bool = True  # Whether to play through local audio output
 
 
 # --- Request Models ---
+
+class AdhocSelection(BaseModel):
+    """Speaker selection from the UI tree."""
+    include_floors: list = []
+    include_areas: list = []
+    include_speakers: list = []  # e.g. ['audio_device.1', 'network_speaker.abc']
+    exclude_areas: list = []
+    exclude_speakers: list = []
+
 
 class CreateSessionRequest(BaseModel):
     theme_id: Optional[str] = None
     preset_id: Optional[str] = None
     custom_name: Optional[str] = None
     volume: Optional[int] = Field(default=80, ge=0, le=100)
+    speakers: Optional[list] = None  # List of speaker IDs (legacy)
+    adhoc_selection: Optional[AdhocSelection] = None  # From UI speaker tree
 
 
 class UpdateSessionRequest(BaseModel):
@@ -57,6 +72,8 @@ class UpdateSessionRequest(BaseModel):
     preset_id: Optional[str] = None
     custom_name: Optional[str] = None
     volume: Optional[int] = Field(default=None, ge=0, le=100)
+    speakers: Optional[list] = None  # List of speaker IDs (legacy)
+    adhoc_selection: Optional[AdhocSelection] = None  # From UI speaker tree
 
 
 class VolumeRequest(BaseModel):
@@ -153,13 +170,19 @@ def _load_sessions_from_config():
         config = get_config()
         for session_data in config.sessions:
             if isinstance(session_data, dict):
+                # Parse speakers list, defaulting to ['local'] for backward compat
+                speakers = session_data.get('speakers', ['local'])
+                use_local = 'local' in speakers
+
                 session = Session(
                     id=session_data.get('id', str(uuid.uuid4())[:8]),
                     name=session_data.get('name', 'Session'),
                     theme_id=session_data.get('theme_id', ''),
                     preset_id=session_data.get('preset_id', ''),
                     volume=session_data.get('volume', 80),
-                    created_at=session_data.get('created_at', datetime.now().isoformat())
+                    created_at=session_data.get('created_at', datetime.now().isoformat()),
+                    speakers=speakers,
+                    use_local_speaker=use_local
                 )
                 _sessions[session.id] = session
         logger.info(f'Loaded {len(_sessions)} sessions from config')
@@ -178,7 +201,8 @@ def _save_sessions_to_config():
                 'theme_id': s.theme_id,
                 'preset_id': s.preset_id,
                 'volume': s.volume,
-                'created_at': s.created_at
+                'created_at': s.created_at,
+                'speakers': s.speakers
             }
             for s in _sessions.values()
         ]
@@ -239,6 +263,172 @@ def _get_version() -> str:
     return '1.0.0'
 
 
+def _convert_adhoc_to_speakers(adhoc: 'AdhocSelection') -> list:
+    """
+    Convert adhoc_selection from UI to speakers list.
+
+    The UI sends entity_ids like:
+    - 'audio_device.1' for local audio devices
+    - 'network_speaker.abc123' for network speakers
+
+    We convert to:
+    - 'local' if any audio_device is included
+    - 'network_speaker.{id}' for network speakers
+    """
+    speakers = []
+
+    # Check if any local audio device is selected
+    has_local = False
+    for entity_id in adhoc.include_speakers:
+        if entity_id.startswith('audio_device.'):
+            has_local = True
+        elif entity_id.startswith('network_speaker.'):
+            # Keep network speaker IDs as-is
+            speakers.append(entity_id)
+
+    # Check areas - 'local_audio' area means local speaker
+    if 'local_audio' in adhoc.include_areas:
+        has_local = True
+
+    # Add 'local' once if any local device is selected
+    if has_local:
+        speakers.insert(0, 'local')
+
+    return speakers if speakers else ['local']  # Default to local if nothing selected
+
+
+async def _start_session_speakers(session: 'Session'):
+    """Start streaming to all network speakers in a session."""
+    from sonorium.streaming import get_streaming_manager
+    from sonorium.network_speakers import get_speaker, SpeakerStatus
+
+    if not session.theme_id:
+        return
+
+    manager = get_streaming_manager()
+
+    for speaker_ref in session.speakers:
+        # Skip local speaker
+        if speaker_ref == 'local':
+            continue
+
+        # Extract speaker ID from 'network_speaker.{id}' format
+        if speaker_ref.startswith('network_speaker.'):
+            speaker_id = speaker_ref.replace('network_speaker.', '')
+        else:
+            speaker_id = speaker_ref
+
+        speaker = get_speaker(speaker_id)
+        if not speaker:
+            logger.warning(f'Speaker {speaker_id} not found, skipping')
+            continue
+
+        if speaker.status == SpeakerStatus.UNAVAILABLE:
+            logger.warning(f'Speaker {speaker.name} is unavailable, skipping')
+            continue
+
+        # Start streaming to this speaker
+        logger.info(f'Starting stream to network speaker: {speaker.name}')
+        try:
+            success = await manager.start_streaming(
+                speaker_id=speaker_id,
+                speaker_type=speaker.speaker_type.value,
+                speaker_info=speaker.to_dict(),
+                theme_id=session.theme_id
+            )
+            if success:
+                logger.info(f'Streaming started to {speaker.name}')
+            else:
+                logger.error(f'Failed to start streaming to {speaker.name}')
+        except Exception as e:
+            logger.error(f'Error starting stream to {speaker.name}: {e}')
+
+
+async def _stop_session_speakers(session: 'Session'):
+    """Stop streaming to all network speakers in a session."""
+    from sonorium.streaming import get_streaming_manager
+
+    manager = get_streaming_manager()
+
+    for speaker_ref in session.speakers:
+        # Skip local speaker
+        if speaker_ref == 'local':
+            continue
+
+        # Extract speaker ID
+        if speaker_ref.startswith('network_speaker.'):
+            speaker_id = speaker_ref.replace('network_speaker.', '')
+        else:
+            speaker_id = speaker_ref
+
+        try:
+            await manager.stop_streaming(speaker_id)
+            logger.info(f'Stopped streaming to speaker: {speaker_id}')
+        except Exception as e:
+            logger.error(f'Error stopping stream to {speaker_id}: {e}')
+
+
+async def _update_session_speakers(session: 'Session'):
+    """Update speakers for a playing session (add new, remove old)."""
+    from sonorium.streaming import get_streaming_manager
+
+    manager = get_streaming_manager()
+
+    # Get currently streaming speakers
+    active_sessions = manager.get_active_sessions()
+    active_speaker_ids = {s.speaker_id for s in active_sessions}
+
+    # Get target speakers (excluding local)
+    target_speaker_ids = set()
+    for speaker_ref in session.speakers:
+        if speaker_ref == 'local':
+            continue
+        if speaker_ref.startswith('network_speaker.'):
+            target_speaker_ids.add(speaker_ref.replace('network_speaker.', ''))
+        else:
+            target_speaker_ids.add(speaker_ref)
+
+    # Stop removed speakers
+    for speaker_id in active_speaker_ids - target_speaker_ids:
+        try:
+            await manager.stop_streaming(speaker_id)
+            logger.info(f'Stopped streaming to removed speaker: {speaker_id}')
+        except Exception as e:
+            logger.error(f'Error stopping stream to {speaker_id}: {e}')
+
+    # Start new speakers
+    from sonorium.network_speakers import get_speaker, SpeakerStatus
+
+    for speaker_id in target_speaker_ids - active_speaker_ids:
+        speaker = get_speaker(speaker_id)
+        if not speaker:
+            logger.warning(f'Speaker {speaker_id} not found')
+            continue
+
+        if speaker.status == SpeakerStatus.UNAVAILABLE:
+            logger.warning(f'Speaker {speaker.name} is unavailable')
+            continue
+
+        try:
+            success = await manager.start_streaming(
+                speaker_id=speaker_id,
+                speaker_type=speaker.speaker_type.value,
+                speaker_info=speaker.to_dict(),
+                theme_id=session.theme_id
+            )
+            if success:
+                logger.info(f'Started streaming to new speaker: {speaker.name}')
+        except Exception as e:
+            logger.error(f'Error starting stream to {speaker.name}: {e}')
+
+    # Handle local speaker toggle
+    if session.use_local_speaker and _app_instance.playback_state != 'playing':
+        _app_instance.play(session.theme_id, preset_id=session.preset_id)
+        _app_instance.set_volume(session.volume / 100.0)
+    elif not session.use_local_speaker and _app_instance.playback_state == 'playing':
+        _app_instance.stop()
+
+
 def _session_to_dict(session: Session) -> dict:
     """Convert session to API response dict."""
     theme_name = None
@@ -247,6 +437,38 @@ def _session_to_dict(session: Session) -> dict:
         if theme:
             theme_name = theme.name
 
+    # Build speaker summary
+    speaker_names = []
+    if session.use_local_speaker:
+        speaker_names.append('Local Audio')
+    # Count network speakers
+    network_count = sum(1 for s in session.speakers if s.startswith('network_speaker.'))
+    if network_count > 0:
+        speaker_names.append(f'{network_count} Network Speaker{"s" if network_count > 1 else ""}')
+
+    speaker_summary = ', '.join(speaker_names) if speaker_names else 'No speakers selected'
+
+    # Convert speakers list back to adhoc_selection format for UI
+    # The UI expects entity_ids like 'audio_device.X' and 'network_speaker.abc'
+    include_speakers = []
+    include_areas = []
+
+    for speaker_ref in session.speakers:
+        if speaker_ref == 'local':
+            # Local speaker selected - use area selection to indicate local audio
+            include_areas.append('local_audio')
+        elif speaker_ref.startswith('network_speaker.'):
+            # Network speaker - keep the full entity_id
+            include_speakers.append(speaker_ref)
+
+    adhoc_selection = {
+        'include_floors': [],
+        'include_areas': include_areas,
+        'include_speakers': include_speakers,
+        'exclude_areas': [],
+        'exclude_speakers': []
+    }
+
     return {
         'id': session.id,
         'name': session.name,
@@ -254,11 +476,11 @@ def _session_to_dict(session: Session) -> dict:
         'theme_id': session.theme_id,
         'preset_id': session.preset_id,
         'speaker_group_id': None,
-        'adhoc_selection': None,
+        'adhoc_selection': adhoc_selection,
         'volume': session.volume,
         'is_playing': session.is_playing,
-        'speakers': ['local_audio'],
-        'speaker_summary': 'Local Audio Output',
+        'speakers': session.speakers,
+        'speaker_summary': speaker_summary,
         'channel_id': 0 if session.is_playing else None,
         'cycle_config': {
             'enabled': False,
@@ -373,6 +595,7 @@ def create_app(app_instance: 'SonoriumApp') -> FastAPI:
             'version': _get_version(),
             'playback_state': _app_instance.playback_state,
             'current_theme': _app_instance.current_theme,
+            'current_preset': _app_instance.current_preset,
             'master_volume': _app_instance.master_volume,
             'playing_sessions': playing_count,
             'total_sessions': len(_sessions),
@@ -423,12 +646,25 @@ def create_app(app_instance: 'SonoriumApp') -> FastAPI:
         if not name:
             name = f'Session {len(_sessions) + 1}'
 
+        # Parse speakers from adhoc_selection or direct speakers list
+        if request.adhoc_selection:
+            speakers = _convert_adhoc_to_speakers(request.adhoc_selection)
+            logger.info(f'Converted adhoc_selection to speakers: {speakers}')
+        elif request.speakers:
+            speakers = request.speakers
+        else:
+            speakers = ['local']  # Default to local only
+
+        use_local = 'local' in speakers
+
         session = Session(
             id=session_id,
             name=name,
             theme_id=request.theme_id,
             preset_id=request.preset_id,
-            volume=request.volume or 80
+            volume=request.volume or 80,
+            speakers=speakers,
+            use_local_speaker=use_local
         )
         _sessions[session_id] = session
 
@@ -450,6 +686,7 @@ def create_app(app_instance: 'SonoriumApp') -> FastAPI:
 
         session = _sessions[session_id]
         needs_restart = False
+        speakers_changed = False
 
         if request.theme_id is not None and request.theme_id != session.theme_id:
             session.theme_id = request.theme_id
@@ -465,10 +702,31 @@ def create_app(app_instance: 'SonoriumApp') -> FastAPI:
             if session.is_playing:
                 _app_instance.set_volume(request.volume / 100.0)
 
+        # Handle speaker selection changes (from adhoc_selection or direct speakers list)
+        new_speakers_list = None
+        if request.adhoc_selection is not None:
+            new_speakers_list = _convert_adhoc_to_speakers(request.adhoc_selection)
+            logger.info(f'Converted adhoc_selection to speakers: {new_speakers_list}')
+        elif request.speakers is not None:
+            new_speakers_list = request.speakers
+
+        if new_speakers_list is not None:
+            old_speakers = set(session.speakers)
+            new_speakers = set(new_speakers_list)
+            if old_speakers != new_speakers:
+                session.speakers = new_speakers_list
+                session.use_local_speaker = 'local' in new_speakers_list
+                speakers_changed = True
+                logger.info(f'Session {session_id} speakers changed: {new_speakers_list}')
+
         # Crossfade to new theme/preset if changed while playing
         if needs_restart and session.is_playing:
             logger.info(f'Crossfading for session {session_id} due to theme/preset change')
             _app_instance.crossfade_to(session.theme_id, preset_id=session.preset_id)
+
+        # Handle speaker changes while playing
+        if speakers_changed and session.is_playing:
+            await _update_session_speakers(session)
 
         # Save sessions to config
         _save_sessions_to_config()
@@ -499,17 +757,29 @@ def create_app(app_instance: 'SonoriumApp') -> FastAPI:
 
         session = _sessions[session_id]
 
-        # Stop any other playing sessions
+        # Stop any other playing sessions and their network speakers
         for s in _sessions.values():
             if s.is_playing and s.id != session_id:
+                await _stop_session_speakers(s)
                 s.is_playing = False
 
         # Play this session's theme
         if session.theme_id:
-            _app_instance.play(session.theme_id, preset_id=session.preset_id)
-            _app_instance.set_volume(session.volume / 100.0)
+            # Only play to local speaker if enabled
+            if session.use_local_speaker:
+                _app_instance.play(session.theme_id, preset_id=session.preset_id)
+                _app_instance.set_volume(session.volume / 100.0)
+            else:
+                # No local playback - just set the theme for streaming
+                _app_instance.current_theme = session.theme_id
+                _app_instance.current_preset = session.preset_id
+                _app_instance.playback_state = 'playing'
+
             session.is_playing = True
             session.last_played_at = datetime.now().isoformat()
+
+            # Start streaming to network speakers
+            await _start_session_speakers(session)
 
         return _session_to_dict(session)
 
@@ -519,7 +789,14 @@ def create_app(app_instance: 'SonoriumApp') -> FastAPI:
             raise HTTPException(status_code=404, detail='Session not found')
 
         session = _sessions[session_id]
-        _app_instance.stop()
+
+        # Stop local playback
+        if session.use_local_speaker:
+            _app_instance.stop()
+
+        # Stop network speakers
+        await _stop_session_speakers(session)
+
         session.is_playing = False
 
         return _session_to_dict(session)

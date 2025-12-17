@@ -61,6 +61,7 @@ class NetworkSpeaker:
             'status': self.status.value,
             'last_seen': self.last_seen,
             'available': self.status == SpeakerStatus.AVAILABLE,
+            'extra': self.extra,  # Contains DLNA location URL, Chromecast info, etc.
         }
 
     def to_storage_dict(self) -> dict:
