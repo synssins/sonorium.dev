@@ -21,6 +21,10 @@ from pydantic import BaseModel, Field
 
 from sonorium.obs import logger
 from sonorium.core.channel import ChannelManager, ChannelState
+from sonorium.local_stream_player import (
+    get_local_player, play_local, stop_local, set_local_volume,
+    is_local_playing, get_local_channel_id
+)
 
 if TYPE_CHECKING:
     from sonorium.app_device import SonoriumApp
@@ -177,6 +181,32 @@ def _is_local_speaker_ref(speaker_ref: str) -> bool:
     return speaker_ref in ('local', 'local_audio')
 
 
+def _get_local_stream_url(channel_id: int) -> str:
+    """Get the stream URL for local playback (localhost)."""
+    config = get_config()
+    port = config.port
+    return f"http://127.0.0.1:{port}/stream/channel{channel_id}"
+
+
+def _start_local_playback(channel_id: int, volume: float = 1.0):
+    """
+    Start local playback from a channel stream.
+
+    This treats local audio like a network speaker - it connects to
+    the channel's MP3 stream and plays it through the local audio device.
+    """
+    stream_url = _get_local_stream_url(channel_id)
+    logger.info(f"Starting local playback from channel {channel_id}: {stream_url}")
+    play_local(stream_url, channel_id, volume)
+
+
+def _stop_local_playback():
+    """Stop local playback."""
+    if is_local_playing():
+        logger.info("Stopping local playback")
+        stop_local()
+
+
 def _load_sessions_from_config():
     """Load saved sessions from config file."""
     global _sessions
@@ -312,19 +342,28 @@ def _convert_adhoc_to_speakers(adhoc: 'AdhocSelection') -> list:
 
 
 async def _start_session_speakers(session: 'Session'):
-    """Start streaming to all network speakers in a session using channel-based streaming."""
+    """
+    Start streaming to all speakers in a session using channel-based streaming.
+
+    Both local and network speakers now use the same channel stream model:
+    - A channel generates MP3 audio from the theme
+    - Local speaker connects to the stream via localhost
+    - Network speakers connect to the stream via network IP
+    """
     from sonorium.streaming import get_streaming_manager
     from sonorium.network_speakers import get_speaker, SpeakerStatus
 
     if not session.theme_id:
         return
 
-    # Check if any network speakers are selected
+    # Check what speakers are selected
+    has_local_speaker = session.use_local_speaker
     has_network_speakers = any(
         not _is_local_speaker_ref(s) for s in session.speakers
     )
 
-    if not has_network_speakers:
+    # If no speakers at all, nothing to do
+    if not has_local_speaker and not has_network_speakers:
         return
 
     # Check if session already has a channel assigned
@@ -357,54 +396,67 @@ async def _start_session_speakers(session: 'Session'):
     # Set the theme on the channel (this starts the channel's generator or crossfades)
     channel.set_theme(theme)
 
-    manager = get_streaming_manager()
+    # Start local playback if enabled (treats local speaker like a network speaker)
+    if has_local_speaker:
+        _start_local_playback(channel.id, session.volume / 100.0)
 
-    for speaker_ref in session.speakers:
-        # Skip local speaker (handles both 'local' and 'local_audio')
-        if _is_local_speaker_ref(speaker_ref):
-            continue
+    # Start network speakers
+    if has_network_speakers:
+        manager = get_streaming_manager()
 
-        # Extract speaker ID from 'network_speaker.{id}' format
-        if speaker_ref.startswith('network_speaker.'):
-            speaker_id = speaker_ref.replace('network_speaker.', '')
-        else:
-            speaker_id = speaker_ref
+        for speaker_ref in session.speakers:
+            # Skip local speaker (handled above)
+            if _is_local_speaker_ref(speaker_ref):
+                continue
 
-        speaker = get_speaker(speaker_id)
-        if not speaker:
-            logger.warning(f'Speaker {speaker_id} not found, skipping')
-            continue
-
-        if speaker.status == SpeakerStatus.UNAVAILABLE:
-            logger.warning(f'Speaker {speaker.name} is unavailable, skipping')
-            continue
-
-        # Start streaming to this speaker using channel-based URL
-        logger.info(f'Starting channel-based stream to network speaker: {speaker.name} (channel {channel.id})')
-        try:
-            success = await manager.start_streaming(
-                speaker_id=speaker_id,
-                speaker_type=speaker.speaker_type.value,
-                speaker_info=speaker.to_dict(),
-                theme_id=session.theme_id,
-                channel_id=channel.id  # Use channel-based streaming
-            )
-            if success:
-                logger.info(f'Streaming started to {speaker.name} via channel {channel.id}')
+            # Extract speaker ID from 'network_speaker.{id}' format
+            if speaker_ref.startswith('network_speaker.'):
+                speaker_id = speaker_ref.replace('network_speaker.', '')
             else:
-                logger.error(f'Failed to start streaming to {speaker.name}')
-        except Exception as e:
-            logger.error(f'Error starting stream to {speaker.name}: {e}')
+                speaker_id = speaker_ref
+
+            speaker = get_speaker(speaker_id)
+            if not speaker:
+                logger.warning(f'Speaker {speaker_id} not found, skipping')
+                continue
+
+            if speaker.status == SpeakerStatus.UNAVAILABLE:
+                logger.warning(f'Speaker {speaker.name} is unavailable, skipping')
+                continue
+
+            # Start streaming to this speaker using channel-based URL
+            logger.info(f'Starting channel-based stream to network speaker: {speaker.name} (channel {channel.id})')
+            try:
+                success = await manager.start_streaming(
+                    speaker_id=speaker_id,
+                    speaker_type=speaker.speaker_type.value,
+                    speaker_info=speaker.to_dict(),
+                    theme_id=session.theme_id,
+                    channel_id=channel.id  # Use channel-based streaming
+                )
+                if success:
+                    logger.info(f'Streaming started to {speaker.name} via channel {channel.id}')
+                else:
+                    logger.error(f'Failed to start streaming to {speaker.name}')
+            except Exception as e:
+                logger.error(f'Error starting stream to {speaker.name}: {e}')
 
 
 async def _stop_session_speakers(session: 'Session'):
-    """Stop streaming to all network speakers in a session and release the channel."""
+    """Stop streaming to all speakers in a session and release the channel."""
     from sonorium.streaming import get_streaming_manager
 
+    # Stop local playback if this session was using it
+    if session.use_local_speaker:
+        # Only stop if local player is playing THIS session's channel
+        if session.channel_id is not None and get_local_channel_id() == session.channel_id:
+            _stop_local_playback()
+
+    # Stop network speakers
     manager = get_streaming_manager()
 
     for speaker_ref in session.speakers:
-        # Skip local speaker (handles both 'local' and 'local_audio')
+        # Skip local speaker (handled above)
         if _is_local_speaker_ref(speaker_ref):
             continue
 
@@ -505,11 +557,14 @@ async def _update_session_speakers(session: 'Session'):
                 logger.error(f'Error starting stream to {speaker.name}: {e}')
 
     # Handle local speaker toggle
-    if session.use_local_speaker and _app_instance.playback_state != 'playing':
-        _app_instance.play(session.theme_id, preset_id=session.preset_id)
-        _app_instance.set_volume(session.volume / 100.0)
-    elif not session.use_local_speaker and _app_instance.playback_state == 'playing':
-        _app_instance.stop()
+    if session.use_local_speaker and not is_local_playing():
+        # Start local playback via channel stream
+        if session.channel_id is not None:
+            _start_local_playback(session.channel_id, session.volume / 100.0)
+    elif not session.use_local_speaker and is_local_playing():
+        # Only stop if local is playing THIS session's channel
+        if session.channel_id is not None and get_local_channel_id() == session.channel_id:
+            _stop_local_playback()
 
 
 def _session_to_dict(session: Session) -> dict:
@@ -605,11 +660,11 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
         global _last_heartbeat
         while True:
             time.sleep(2)  # Check every 2 seconds
-            if _stop_on_disconnect and _app_instance and _app_instance.playback_state == 'playing':
+            if _stop_on_disconnect and is_local_playing():
                 elapsed = time.time() - _last_heartbeat
                 if elapsed > _heartbeat_timeout:
                     logger.info(f'Browser disconnected (no heartbeat for {elapsed:.1f}s). Stopping playback.')
-                    _app_instance.stop()
+                    _stop_local_playback()
                     # Stop all sessions
                     for session in _sessions.values():
                         session.is_playing = False
@@ -827,12 +882,8 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
         if needs_restart and session.is_playing:
             logger.info(f'Crossfading for session {session_id} due to theme/preset change')
 
-            # Crossfade local playback if enabled
-            if session.use_local_speaker:
-                _app_instance.crossfade_to(session.theme_id, preset_id=session.preset_id)
-
-            # Crossfade the channel (network speakers) if assigned
-            # This is the key feature: network speakers stay connected, just the audio crossfades
+            # Crossfade the channel - both local and network speakers hear this
+            # since they all connect to the same channel stream
             if session.channel_id is not None:
                 channel = _channel_manager.get_channel(session.channel_id)
                 if channel:
@@ -847,13 +898,12 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
             if old_use_local and not session.use_local_speaker:
                 # Local speaker was removed - stop local playback
                 logger.info(f'Session {session_id}: stopping local playback (local speaker unchecked)')
-                _app_instance.stop()
+                _stop_local_playback()
             elif not old_use_local and session.use_local_speaker:
-                # Local speaker was added - start local playback
+                # Local speaker was added - start local playback via channel stream
                 logger.info(f'Session {session_id}: starting local playback (local speaker checked)')
-                if session.theme_id:
-                    _app_instance.play(session.theme_id, preset_id=session.preset_id)
-                    _app_instance.set_volume(session.volume / 100.0)
+                if session.channel_id is not None:
+                    _start_local_playback(session.channel_id, session.volume / 100.0)
 
             # Update network speakers
             await _update_session_speakers(session)
@@ -870,7 +920,8 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
 
         session = _sessions[session_id]
         if session.is_playing:
-            _app_instance.stop()
+            # Stop all speakers and release channel
+            await _stop_session_speakers(session)
             session.is_playing = False
 
         del _sessions[session_id]
@@ -894,17 +945,15 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
                 # Stop local playback from any other session using local speaker
                 for s in _sessions.values():
                     if s.is_playing and s.id != session_id and s.use_local_speaker:
-                        _app_instance.stop()
-                        s.use_local_speaker = False  # Remove local from other session
+                        _stop_local_playback()
+                        # Don't remove local from other session - let them keep their preference
+                        # but our session takes over local playback
                         logger.info(f'Stopped local playback from session {s.id} (local speaker taken by {session_id})')
-
-                _app_instance.play(session.theme_id, preset_id=session.preset_id)
-                _app_instance.set_volume(session.volume / 100.0)
 
             session.is_playing = True
             session.last_played_at = datetime.now().isoformat()
 
-            # Start streaming to network speakers (each session gets its own channel)
+            # Start streaming to all speakers (local + network, all via channel streams)
             await _start_session_speakers(session)
 
         return _session_to_dict(session)
@@ -916,11 +965,7 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
 
         session = _sessions[session_id]
 
-        # Stop local playback
-        if session.use_local_speaker:
-            _app_instance.stop()
-
-        # Stop network speakers
+        # Stop all speakers (local + network) and release channel
         await _stop_session_speakers(session)
 
         session.is_playing = False
@@ -935,8 +980,9 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
         session = _sessions[session_id]
         session.volume = request.volume
 
-        if session.is_playing:
-            _app_instance.set_volume(request.volume / 100.0)
+        if session.is_playing and session.use_local_speaker:
+            # Update local stream player volume
+            set_local_volume(request.volume / 100.0)
 
         return _session_to_dict(session)
 
@@ -1237,16 +1283,12 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
         if not theme:
             raise HTTPException(status_code=404, detail='Theme not found')
 
-        # Stop playback if this theme is currently playing
-        if _app_instance.current_theme == theme_id:
-            _app_instance.stop()
-
         # Stop any sessions using this theme
         sessions_stopped = []
         for session_id, session in _sessions.items():
             if session.theme_id == theme_id and session.is_playing:
-                # Stop this session's playback
-                _app_instance.stop()
+                # Stop this session's playback (local + network speakers + channel)
+                await _stop_session_speakers(session)
                 session.is_playing = False
                 sessions_stopped.append(session_id)
                 logger.info(f'Stopped session "{session.name}" for theme deletion')
@@ -2725,15 +2767,20 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
 
     @fastapi_app.post('/api/play')
     async def legacy_play(request: PlayRequest = None):
-        theme_name = request.theme if request else None
-        _app_instance.play(theme_name)
-        return {'status': 'ok', 'playing': _app_instance.current_theme}
+        """Legacy play endpoint - plays directly without sessions (deprecated)."""
+        # For legacy compatibility, just stop local playback
+        # New code should use sessions
+        _stop_local_playback()
+        return {'status': 'ok', 'playing': None}
 
     @fastapi_app.post('/api/stop')
     async def legacy_stop():
-        _app_instance.stop()
-        # Mark all sessions as stopped
+        """Legacy stop endpoint - stops all playback."""
+        _stop_local_playback()
+        # Mark all sessions as stopped and stop their speakers
         for session in _sessions.values():
+            if session.is_playing:
+                await _stop_session_speakers(session)
             session.is_playing = False
         return {'status': 'ok'}
 
