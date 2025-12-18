@@ -184,7 +184,7 @@ def _is_local_speaker_ref(speaker_ref: str) -> bool:
 def _get_local_stream_url(channel_id: int) -> str:
     """Get the stream URL for local playback (localhost)."""
     config = get_config()
-    port = config.port
+    port = config.server_port
     return f"http://127.0.0.1:{port}/stream/channel{channel_id}"
 
 
