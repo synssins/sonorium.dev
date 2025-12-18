@@ -434,6 +434,8 @@ class NetworkStreamingManager:
         """
         try:
             import pyatv
+            from pyatv.conf import AppleTV, RaopService
+            from pyatv.const import Protocol
             import aiohttp
 
             host = speaker_info.get('host')
@@ -443,26 +445,51 @@ class NetworkStreamingManager:
                 return False
 
             speaker_name = speaker_info.get('name', host)
-            logger.info(f"AirPlay: Connecting to {speaker_name} at {host}...")
+            port = speaker_info.get('port', 7000)
+            extra = speaker_info.get('extra', {})
 
-            # Scan for the specific device - prefer RAOP protocol for audio speakers
+            logger.info(f"AirPlay: Connecting to {speaker_name} at {host}:{port}...")
+
             loop = asyncio.get_event_loop()
-            devices = await pyatv.scan(loop, hosts=[host], timeout=5)
 
-            if not devices:
-                session.error_message = f"Could not find AirPlay device at {host}"
-                logger.error(f"AirPlay: No device found at {host}")
-                return False
+            # Try to build config manually from stored discovery info first
+            # This avoids re-scanning which may timeout for non-Apple devices
+            device_config = None
+            identifier = extra.get('identifier')
 
-            device_config = devices[0]
-            protocols = [str(s.protocol) for s in device_config.services]
-            logger.info(f"AirPlay: Found device '{device_config.name}' with protocols: {protocols}")
+            if identifier:
+                # Build device config manually using stored info
+                logger.info(f"AirPlay: Building config from stored info (identifier: {identifier})")
+                device_config = AppleTV(host, speaker_name)
+
+                # Add RAOP service for audio streaming
+                raop_service = RaopService(
+                    identifier=identifier,
+                    port=port,
+                    properties={}
+                )
+                device_config.add_service(raop_service)
+                logger.info(f"AirPlay: Added RAOP service on port {port}")
+
+            else:
+                # Fall back to scanning if no stored identifier
+                logger.info(f"AirPlay: No stored identifier, scanning for device...")
+                devices = await pyatv.scan(loop, hosts=[host], timeout=10)
+
+                if not devices:
+                    session.error_message = f"Could not find AirPlay device at {host}"
+                    logger.error(f"AirPlay: No device found at {host}")
+                    return False
+
+                device_config = devices[0]
+                protocols = [str(s.protocol) for s in device_config.services]
+                logger.info(f"AirPlay: Found device '{device_config.name}' with protocols: {protocols}")
 
             # Connect to the device
             atv = await pyatv.connect(device_config, loop)
             session._device = atv
 
-            logger.info(f"AirPlay: Connected to {device_config.name}")
+            logger.info(f"AirPlay: Connected to {speaker_name}")
 
             # Check if device supports streaming interface
             if not atv.stream:
