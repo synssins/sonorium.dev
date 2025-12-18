@@ -536,6 +536,15 @@ class UpdateCheckThread(QThread):
     no_update = pyqtSignal()
     error = pyqtSignal(str)
 
+    def __init__(self, include_prereleases: bool = False):
+        super().__init__()
+        self.include_prereleases = include_prereleases
+
+    def _is_prerelease(self, version: str) -> bool:
+        """Check if a version string indicates a pre-release."""
+        version_lower = version.lower()
+        return any(tag in version_lower for tag in ['alpha', 'beta', 'rc', 'dev'])
+
     def _parse_version(self, v: str) -> tuple:
         """Parse version string for comparison.
 
@@ -554,7 +563,7 @@ class UpdateCheckThread(QThread):
     def run(self):
         """Check GitHub releases for updates."""
         logger = get_logger()
-        logger.info(f"Checking for updates (current version: {APP_VERSION})")
+        logger.info(f"Checking for updates (current version: {APP_VERSION}, include_prereleases: {self.include_prereleases})")
 
         try:
             req = urllib.request.Request(
@@ -575,6 +584,12 @@ class UpdateCheckThread(QThread):
                     continue
 
                 tag = release.get('tag_name', '').lstrip('v')
+
+                # Skip pre-releases if not opted in
+                if self._is_prerelease(tag) and not self.include_prereleases:
+                    logger.debug(f"Skipping pre-release {tag} (user opted out)")
+                    continue
+
                 tag_parsed = self._parse_version(tag)
                 logger.debug(f"Comparing {tag} ({tag_parsed}) > {current} ({current_parsed})")
 
@@ -992,6 +1007,11 @@ class SettingsDialog(QDialog):
         self.check_updates.setChecked(self.config.get('check_updates_on_startup', True))
         updates_form.addRow("Check on startup:", self.check_updates)
 
+        self.include_prereleases = QCheckBox()
+        self.include_prereleases.setChecked(self.config.get('include_prereleases', False))
+        self.include_prereleases.setToolTip("Include alpha and beta releases in update checks")
+        updates_form.addRow("Include dev releases:", self.include_prereleases)
+
         updates_group.setLayout(updates_form)
         updates_layout.addWidget(updates_group)
         updates_layout.addStretch()
@@ -1048,6 +1068,7 @@ class SettingsDialog(QDialog):
         self.config['auto_start_server'] = self.auto_start_server.isChecked()
         self.config['server_port'] = self.port_spin.value()
         self.config['check_updates_on_startup'] = self.check_updates.isChecked()
+        self.config['include_prereleases'] = self.include_prereleases.isChecked()
         return self.config
 
 
@@ -1146,7 +1167,8 @@ class MainWindow(QMainWindow):
 
     def check_for_updates(self, silent: bool = True):
         """Check for updates from GitHub."""
-        self.update_check_thread = UpdateCheckThread()
+        include_prereleases = self.config.get('include_prereleases', False)
+        self.update_check_thread = UpdateCheckThread(include_prereleases=include_prereleases)
         self.update_check_thread.update_available.connect(
             lambda info: self.on_update_available(info, silent)
         )
