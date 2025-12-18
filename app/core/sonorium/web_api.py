@@ -327,11 +327,26 @@ async def _start_session_speakers(session: 'Session'):
     if not has_network_speakers:
         return
 
-    # Acquire a channel for this session
-    channel = _channel_manager.get_available_channel()
-    if not channel:
-        logger.error('No available channels for session')
-        return
+    # Check if session already has a channel assigned
+    channel = None
+    if session.channel_id is not None:
+        channel = _channel_manager.get_channel(session.channel_id)
+        if channel and channel.state != ChannelState.IDLE:
+            # Channel is already active, just update theme if needed
+            logger.info(f'Session {session.id} reusing existing channel {channel.id}')
+        else:
+            # Channel was released or invalid, get a new one
+            channel = None
+            session.channel_id = None
+
+    # Acquire a new channel if needed
+    if channel is None:
+        channel = _channel_manager.get_available_channel()
+        if not channel:
+            logger.error('No available channels for session')
+            return
+        session.channel_id = channel.id
+        logger.info(f'Session {session.id} assigned to new channel {channel.id}')
 
     # Get the theme and set it on the channel
     theme = _app_instance.get_theme(session.theme_id)
@@ -339,10 +354,8 @@ async def _start_session_speakers(session: 'Session'):
         logger.error(f'Theme {session.theme_id} not found')
         return
 
-    # Set the theme on the channel (this starts the channel's generator)
+    # Set the theme on the channel (this starts the channel's generator or crossfades)
     channel.set_theme(theme)
-    session.channel_id = channel.id
-    logger.info(f'Session {session.id} assigned to channel {channel.id}')
 
     manager = get_streaming_manager()
 
@@ -874,28 +887,24 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
 
         session = _sessions[session_id]
 
-        # Stop any other playing sessions and their network speakers
-        for s in _sessions.values():
-            if s.is_playing and s.id != session_id:
-                await _stop_session_speakers(s)
-                s.is_playing = False
-
         # Play this session's theme
         if session.theme_id:
-            # Only play to local speaker if enabled
+            # Handle local speaker - only ONE session can use local speaker at a time
             if session.use_local_speaker:
+                # Stop local playback from any other session using local speaker
+                for s in _sessions.values():
+                    if s.is_playing and s.id != session_id and s.use_local_speaker:
+                        _app_instance.stop()
+                        s.use_local_speaker = False  # Remove local from other session
+                        logger.info(f'Stopped local playback from session {s.id} (local speaker taken by {session_id})')
+
                 _app_instance.play(session.theme_id, preset_id=session.preset_id)
                 _app_instance.set_volume(session.volume / 100.0)
-            else:
-                # No local playback - just set the theme for streaming
-                _app_instance.current_theme = session.theme_id
-                _app_instance.current_preset = session.preset_id
-                _app_instance.playback_state = 'playing'
 
             session.is_playing = True
             session.last_played_at = datetime.now().isoformat()
 
-            # Start streaming to network speakers
+            # Start streaming to network speakers (each session gets its own channel)
             await _start_session_speakers(session)
 
         return _session_to_dict(session)
