@@ -398,7 +398,11 @@ async def _start_session_speakers(session: 'Session'):
 
     # Start local playback if enabled (treats local speaker like a network speaker)
     if has_local_speaker:
-        _start_local_playback(channel.id, session.volume / 100.0)
+        logger.info(f'Session {session.id}: Starting local playback on channel {channel.id}')
+        try:
+            _start_local_playback(channel.id, session.volume / 100.0)
+        except Exception as e:
+            logger.error(f'Session {session.id}: Failed to start local playback: {e}')
 
     # Start network speakers
     if has_network_speakers:
