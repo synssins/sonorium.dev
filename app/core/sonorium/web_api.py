@@ -560,7 +560,10 @@ async def _update_session_speakers(session: 'Session'):
     if session.use_local_speaker and not is_local_playing():
         # Start local playback via channel stream
         if session.channel_id is not None:
-            _start_local_playback(session.channel_id, session.volume / 100.0)
+            try:
+                _start_local_playback(session.channel_id, session.volume / 100.0)
+            except Exception as e:
+                logger.error(f'Session {session.id}: Failed to start local playback: {e}')
     elif not session.use_local_speaker and is_local_playing():
         # Only stop if local is playing THIS session's channel
         if session.channel_id is not None and get_local_channel_id() == session.channel_id:
@@ -733,12 +736,21 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
     @fastapi_app.get('/logo.png')
     async def serve_logo():
         import sys
+        import os
+
+        # Determine base path
         if getattr(sys, 'frozen', False):
-            logo_path = Path(sys._MEIPASS) / 'logo.png'
+            base_path = Path(sys._MEIPASS)
+        elif os.environ.get('SONORIUM_DATA_DIR'):
+            # Docker: logo is at /app/logo.png
+            base_path = Path('/app')
         else:
-            logo_path = Path(__file__).parent.parent / 'logo.png'
+            base_path = Path(__file__).parent.parent
+
+        logo_path = base_path / 'logo.png'
         if logo_path.exists():
             return FileResponse(logo_path)
+
         raise HTTPException(status_code=404, detail='Logo not found')
 
     # --- Status ---
@@ -903,7 +915,10 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
                 # Local speaker was added - start local playback via channel stream
                 logger.info(f'Session {session_id}: starting local playback (local speaker checked)')
                 if session.channel_id is not None:
-                    _start_local_playback(session.channel_id, session.volume / 100.0)
+                    try:
+                        _start_local_playback(session.channel_id, session.volume / 100.0)
+                    except Exception as e:
+                        logger.error(f'Session {session_id}: Failed to start local playback: {e}')
 
             # Update network speakers
             await _update_session_speakers(session)
@@ -2351,9 +2366,40 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
     @fastapi_app.put('/api/network-speakers/enabled')
     async def set_enabled_network_speakers(request: dict):
         """Set which network speakers are enabled for streaming."""
+        from sonorium.streaming import get_streaming_manager
+
         speaker_ids = request.get('speaker_ids', [])
+        new_enabled_set = set(speaker_ids)
 
         if hasattr(_app_instance, 'set_enabled_network_speakers'):
+            # Get currently enabled speakers before update
+            old_enabled = set(_app_instance.get_enabled_network_speakers())
+
+            # Find speakers that were disabled (removed from enabled list)
+            disabled_speakers = old_enabled - new_enabled_set
+
+            # Stop streaming to any disabled speakers and remove from sessions
+            if disabled_speakers:
+                streaming_manager = get_streaming_manager()
+                for speaker_id in disabled_speakers:
+                    # Stop active stream
+                    stream_session = streaming_manager.get_session(speaker_id)
+                    if stream_session:
+                        logger.info(f"Stopping stream to disabled speaker: {speaker_id}")
+                        await streaming_manager.stop_streaming(speaker_id)
+
+                    # Remove from all sessions that have this speaker
+                    # Network speakers are stored as "network_speaker.{id}" in session.speakers
+                    speaker_ref = f"network_speaker.{speaker_id}"
+                    for session in _sessions.values():
+                        if speaker_ref in session.speakers:
+                            logger.info(f"Removing disabled speaker {speaker_id} from session {session.id}")
+                            session.speakers.remove(speaker_ref)
+
+                # Save sessions after removing disabled speakers
+                _save_sessions_to_config()
+
+            # Update enabled speakers
             _app_instance.set_enabled_network_speakers(speaker_ids)
 
             # Persist to config

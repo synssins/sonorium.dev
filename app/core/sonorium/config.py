@@ -77,6 +77,12 @@ def get_config_dir() -> Path:
 def get_app_dir() -> Path:
     """Get the application root directory (where themes, plugins, config folders are)."""
     import sys
+
+    # Docker/Linux: respect SONORIUM_DATA_DIR environment variable
+    data_dir = os.environ.get('SONORIUM_DATA_DIR')
+    if data_dir:
+        return Path(data_dir)
+
     if getattr(sys, 'frozen', False):
         # Running as compiled EXE - app root is the same folder as the EXE
         # User places Sonorium.exe in a folder, and themes/, config/, etc. are created there
@@ -97,12 +103,17 @@ def get_default_audio_dir() -> Path:
 def get_bundled_themes_dir() -> Path:
     """Get the bundled themes directory (inside the app package)."""
     import sys
+
+    # Docker: bundled themes are at /app/themes (not in data dir)
+    if os.environ.get('SONORIUM_DATA_DIR'):
+        return Path('/app/themes')
+
     if getattr(sys, 'frozen', False):
         # Running as compiled EXE - bundled themes are extracted to temp dir
         return Path(sys._MEIPASS) / 'themes'
     else:
         # Running as script - themes are in app/themes/
-        return get_app_dir() / 'themes'
+        return Path(__file__).parent.parent.parent / 'themes'
 
 
 def copy_bundled_themes(target_dir: Path) -> None:
