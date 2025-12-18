@@ -8,6 +8,11 @@
 
 Sonorium lets you create immersive ambient audio environments throughout your home. Stream richly layered soundscapes—from distant thunder and rainfall to forest ambiance and ocean waves—to any combination of media players in your Home Assistant setup.
 
+## What's New in v1.2.4
+
+### New Bundled Theme
+- **A Rainy Day... Or is it?** - A new ambient theme included out of the box
+
 ## What's New in v1.2.3
 
 ### Mobile UI Improvements (v1.2.3)
@@ -112,36 +117,25 @@ Configure speakers, volume defaults, and other preferences.
 - **Media Player Discovery**: Automatically finds all media_player entities
 - **Area & Floor Awareness**: Speakers organized by Home Assistant areas and floors
 
-## Audio Setup
+## Theme Management
 
-Create theme folders in `/media/sonorium/` with your audio files:
+All theme management is done through the Sonorium web interface:
 
-```
-/media/sonorium/
-├── Thunder/
-│   ├── distant_thunder_1.mp3
-│   ├── distant_thunder_2.mp3
-│   └── rain_on_roof.mp3
-├── Forest/
-│   ├── birds_morning.mp3
-│   ├── wind_leaves.mp3
-│   └── stream_babbling.mp3
-├── Ocean/
-│   ├── waves_gentle.mp3
-│   └── seagulls.mp3
-└── Rain/
-    └── steady_rain.mp3  (single files loop seamlessly!)
-```
+1. **Create Themes**: Click the + button in the Themes section
+2. **Upload Audio**: Drag and drop audio files or click to upload
+3. **Organize**: Set categories, icons, and favorites
 
 **Supported formats:** `.mp3`, `.wav`, `.flac`, `.ogg`
 
 **Single-File Themes:** Themes with one audio file loop seamlessly using crossfade blending—no jarring restarts!
 
+**Bundled Themes:** Sleigh Ride, Tavern, and "A Rainy Day... Or is it?" are included out of the box.
+
 ## Quick Start
 
 1. **Install** the addon and start it
-2. **Add Audio** to `/media/sonorium/` (create theme folders with audio files)
-3. **Open Sonorium** from your Home Assistant sidebar
+2. **Open Sonorium** from your Home Assistant sidebar
+3. **Add Themes**: Create themes and upload audio via the web interface
 4. **Create a Channel**: Click "New Channel", select a theme and speakers
 5. **Play**: Hit the play button and enjoy your ambient soundscape
 

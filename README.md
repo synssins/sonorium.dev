@@ -66,7 +66,7 @@ Configure speakers, volume defaults, and other preferences.
 - **Theme Favorites**: Star your most-used themes for quick access
 - **Custom Categories**: Organize themes into categories like "Weather", "Nature", "Urban"
 - **Theme Icons**: Visual icons for easy theme identification
-- **Bundled Themes**: Includes Sleigh Ride and Tavern themes out of the box
+- **Bundled Themes**: Includes Sleigh Ride, Tavern, and "A Rainy Day... Or is it?" out of the box
 
 ### Track Mixer
 Fine-tune how each audio file plays within a theme:
@@ -111,9 +111,9 @@ Ambient soundscapes aren't just background noise—they're a powerful tool for m
 
 ### Home Assistant Addon
 
-1. **Install** the addon using the one-click button above
-2. **Add Audio** to `/media/sonorium/` (create theme folders with audio files)
-3. **Open Sonorium** from your Home Assistant sidebar
+1. **Install** the addon using the button above
+2. **Open Sonorium** from your Home Assistant sidebar
+3. **Add Themes**: Create themes and upload audio via the web interface
 4. **Create a Channel**: Select a theme and speakers
 5. **Play**: Hit the play button
 
