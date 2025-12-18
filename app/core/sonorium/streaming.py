@@ -426,13 +426,15 @@ class NetworkStreamingManager:
     async def _start_airplay(self, session: StreamingSession, speaker_info: dict) -> bool:
         """Start streaming to an AirPlay device using pyatv.
 
-        Note: pyatv is primarily for Apple TV devices. Generic AirPlay speakers
-        (like Linkplay devices) may not support the stream_url() method.
-        For those devices, try using DLNA streaming instead.
+        Uses pyatv's stream_file() with aiohttp to fetch our HTTP MP3 stream.
+        This works for both Apple TV and audio-only AirPlay speakers (HomePod,
+        AirPort Express, Linkplay/Arylic, etc.) via the RAOP protocol.
+
+        Fully portable - uses only Python libraries, no system dependencies.
         """
         try:
             import pyatv
-            from pyatv.const import Protocol
+            import aiohttp
 
             host = speaker_info.get('host')
             if not host:
@@ -443,7 +445,7 @@ class NetworkStreamingManager:
             speaker_name = speaker_info.get('name', host)
             logger.info(f"AirPlay: Connecting to {speaker_name} at {host}...")
 
-            # Scan for the specific device
+            # Scan for the specific device - prefer RAOP protocol for audio speakers
             loop = asyncio.get_event_loop()
             devices = await pyatv.scan(loop, hosts=[host], timeout=5)
 
@@ -453,7 +455,8 @@ class NetworkStreamingManager:
                 return False
 
             device_config = devices[0]
-            logger.info(f"AirPlay: Found device '{device_config.name}' with services: {[str(s.protocol) for s in device_config.services]}")
+            protocols = [str(s.protocol) for s in device_config.services]
+            logger.info(f"AirPlay: Found device '{device_config.name}' with protocols: {protocols}")
 
             # Connect to the device
             atv = await pyatv.connect(device_config, loop)
@@ -461,28 +464,107 @@ class NetworkStreamingManager:
 
             logger.info(f"AirPlay: Connected to {device_config.name}")
 
-            # Check if device supports streaming
+            # Check if device supports streaming interface
             if not atv.stream:
                 session.error_message = (
-                    f"AirPlay device '{device_config.name}' does not support URL streaming. "
-                    "This is common for audio-only AirPlay speakers. Try using DLNA instead."
+                    f"AirPlay device '{device_config.name}' does not expose streaming interface"
                 )
-                logger.warning(f"AirPlay: Device does not support streaming interface. "
-                             "pyatv's stream_url() only works with Apple TV devices.")
+                logger.error(f"AirPlay: Device {device_config.name} has no stream interface")
                 await atv.close()
                 return False
 
-            # Start streaming the audio URL
-            logger.info(f"AirPlay: Starting stream to {speaker_name}: {session.stream_url}")
+            # Use stream_file() with aiohttp to pipe our HTTP MP3 stream
+            # This approach works for audio-only AirPlay speakers via RAOP
+            logger.info(f"AirPlay: Starting stream to {speaker_name} via RAOP: {session.stream_url}")
 
-            await atv.stream.stream_url(session.stream_url)
+            # Create aiohttp session for streaming
+            http_session = aiohttp.ClientSession()
+            session._airplay_http_session = http_session
 
-            logger.info(f"AirPlay: {speaker_name} now playing {session.stream_url}")
+            # Flag to signal stop
+            session._airplay_stop_flag = False
+
+            # Start streaming in a background task so we can return immediately
+            # The stream_file call blocks until streaming completes or is cancelled
+            async def stream_task():
+                response = None
+                try:
+                    logger.info(f"AirPlay: Connecting to stream URL: {session.stream_url}")
+                    response = await http_session.get(session.stream_url)
+
+                    if response.status != 200:
+                        error_msg = f"HTTP {response.status} from stream URL"
+                        logger.error(f"AirPlay: {error_msg}")
+                        session.state = StreamingState.ERROR
+                        session.error_message = error_msg
+                        return
+
+                    logger.info(f"AirPlay: Streaming started to {speaker_name}")
+
+                    # Create an async generator that yields chunks from the HTTP response
+                    # pyatv's stream_file() accepts an asyncio.StreamReader or file-like object
+                    # We'll use a StreamReader and feed it from the HTTP response
+                    reader = asyncio.StreamReader()
+
+                    async def feed_reader():
+                        """Feed HTTP response chunks into the StreamReader."""
+                        try:
+                            async for chunk in response.content.iter_chunked(8192):
+                                if session._airplay_stop_flag:
+                                    break
+                                reader.feed_data(chunk)
+                            reader.feed_eof()
+                        except asyncio.CancelledError:
+                            reader.feed_eof()
+                        except Exception as e:
+                            logger.error(f"AirPlay: Error feeding stream: {e}")
+                            reader.feed_eof()
+
+                    # Start feeding in background
+                    feed_task = asyncio.create_task(feed_reader())
+                    session._airplay_feed_task = feed_task
+
+                    # Stream to AirPlay device
+                    await atv.stream.stream_file(reader)
+                    logger.info(f"AirPlay: Stream completed to {speaker_name}")
+
+                except asyncio.CancelledError:
+                    logger.info(f"AirPlay: Stream cancelled for {speaker_name}")
+                except Exception as e:
+                    logger.error(f"AirPlay: Stream error for {speaker_name}: {e}")
+                    session.state = StreamingState.ERROR
+                    session.error_message = str(e)
+                finally:
+                    # Cleanup response
+                    if response:
+                        try:
+                            response.close()
+                        except Exception:
+                            pass
+
+            # Create and store the task
+            session._airplay_task = asyncio.create_task(stream_task())
+
+            # Give it a moment to start and check for immediate failures
+            await asyncio.sleep(1)
+
+            # Check if task failed immediately
+            if session._airplay_task.done():
+                try:
+                    session._airplay_task.result()
+                except Exception as e:
+                    session.error_message = f"Failed to start stream: {e}"
+                    logger.error(f"AirPlay: Task failed immediately: {e}")
+                    await http_session.close()
+                    await atv.close()
+                    return False
+
+            logger.info(f"AirPlay: {speaker_name} streaming from {session.stream_url}")
             return True
 
-        except ImportError:
-            session.error_message = "pyatv not installed"
-            logger.error("AirPlay: pyatv library not installed")
+        except ImportError as e:
+            session.error_message = f"Required library not installed: {e}"
+            logger.error(f"AirPlay: Import error: {e}")
             return False
         except Exception as e:
             error_msg = str(e)
@@ -492,6 +574,38 @@ class NetworkStreamingManager:
 
     async def _stop_airplay(self, session: StreamingSession):
         """Stop AirPlay playback."""
+        # Set stop flag
+        if hasattr(session, '_airplay_stop_flag'):
+            session._airplay_stop_flag = True
+
+        # Cancel the feed task
+        if hasattr(session, '_airplay_feed_task') and session._airplay_feed_task:
+            try:
+                session._airplay_feed_task.cancel()
+                await asyncio.wait_for(session._airplay_feed_task, timeout=2.0)
+            except (asyncio.CancelledError, asyncio.TimeoutError):
+                pass
+            except Exception as e:
+                logger.warning(f"Error cancelling AirPlay feed task: {e}")
+
+        # Cancel the streaming task
+        if hasattr(session, '_airplay_task') and session._airplay_task:
+            try:
+                session._airplay_task.cancel()
+                await asyncio.wait_for(session._airplay_task, timeout=2.0)
+            except (asyncio.CancelledError, asyncio.TimeoutError):
+                pass
+            except Exception as e:
+                logger.warning(f"Error cancelling AirPlay task: {e}")
+
+        # Close the aiohttp session
+        if hasattr(session, '_airplay_http_session') and session._airplay_http_session:
+            try:
+                await session._airplay_http_session.close()
+            except Exception as e:
+                logger.warning(f"Error closing AirPlay HTTP session: {e}")
+
+        # Close the pyatv connection
         if session._device:
             try:
                 # Try to stop playback if supported

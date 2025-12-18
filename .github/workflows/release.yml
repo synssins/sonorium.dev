@@ -10,13 +10,34 @@ jobs:
     runs-on: windows-latest
 
     steps:
+      - name: Determine source branch
+        id: branch
+        run: |
+          # Alpha/beta builds come from dev, stable builds come from main
+          if [[ "${{ github.ref }}" == *"alpha"* ]] || [[ "${{ github.ref }}" == *"beta"* ]]; then
+            echo "SOURCE_BRANCH=dev" >> $GITHUB_OUTPUT
+            echo "Building alpha/beta release from dev branch"
+          else
+            echo "SOURCE_BRANCH=main" >> $GITHUB_OUTPUT
+            echo "Building stable release from main branch"
+          fi
+        shell: bash
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
+          ref: ${{ steps.branch.outputs.SOURCE_BRANCH }}
           fetch-depth: 0  # Fetch all history for tags
 
       - name: Fetch tag annotations
         run: git fetch --tags --force
+        shell: bash
+
+      - name: Verify branch
+        run: |
+          echo "Building from branch: ${{ steps.branch.outputs.SOURCE_BRANCH }}"
+          echo "Current HEAD: $(git rev-parse HEAD)"
+          echo "Tag: ${{ github.ref }}"
         shell: bash
 
       - name: Set up Python
