@@ -19,6 +19,7 @@ class SpeakerType(Enum):
     CHROMECAST = "chromecast"
     SONOS = "sonos"
     DLNA = "dlna"
+    AIRPLAY = "airplay"
 
 
 class SpeakerStatus(Enum):
@@ -358,13 +359,14 @@ class NetworkSpeakerDiscovery:
                     asyncio.create_task(self._discover_dlna(timeout)),
                     asyncio.create_task(self._discover_mdns(timeout)),
                     asyncio.create_task(self._discover_linkplay(timeout)),
+                    asyncio.create_task(self._discover_airplay(timeout)),
                 ]
 
                 results = await asyncio.gather(*tasks, return_exceptions=True)
 
                 for i, result in enumerate(results):
                     if isinstance(result, Exception):
-                        protocol = ['Chromecast', 'Sonos', 'DLNA', 'mDNS', 'Linkplay'][i]
+                        protocol = ['Chromecast', 'Sonos', 'DLNA', 'mDNS', 'Linkplay', 'AirPlay'][i]
                         logger.error(f"{protocol} discovery failed: {result}")
 
                 # Mark all discovered speakers as available
@@ -1023,6 +1025,81 @@ class NetworkSpeakerDiscovery:
 
         return discovered
 
+    async def _discover_airplay(self, timeout: float) -> list[NetworkSpeaker]:
+        """Discover AirPlay devices using pyatv."""
+        discovered = []
+
+        try:
+            import pyatv
+
+            logger.info("Starting AirPlay discovery...")
+
+            # Scan for AirPlay devices
+            loop = asyncio.get_event_loop()
+            devices = await pyatv.scan(loop, timeout=timeout)
+
+            for device in devices:
+                try:
+                    # Check if device supports AirPlay
+                    airplay_service = device.get_service(pyatv.const.Protocol.AirPlay)
+                    raop_service = device.get_service(pyatv.const.Protocol.RAOP)
+
+                    if not airplay_service and not raop_service:
+                        logger.debug(f"Device {device.name} doesn't support AirPlay, skipping")
+                        continue
+
+                    # Use the device's identifier as unique ID
+                    device_id = str(device.identifier) if device.identifier else device.address.replace('.', '_')
+                    speaker_id = f"airplay_{device_id[:20]}"
+
+                    # Skip if already found
+                    if speaker_id in self.speakers:
+                        continue
+
+                    # Get the appropriate port
+                    port = 7000  # Default AirPlay port
+                    if airplay_service and airplay_service.port:
+                        port = airplay_service.port
+                    elif raop_service and raop_service.port:
+                        port = raop_service.port
+
+                    # Determine model from device info (convert to string for JSON serialization)
+                    model = None
+                    if device.device_info and device.device_info.model:
+                        model = str(device.device_info.model)
+
+                    speaker = NetworkSpeaker(
+                        id=speaker_id,
+                        name=device.name or f"AirPlay Device ({device.address})",
+                        speaker_type=SpeakerType.AIRPLAY,
+                        host=str(device.address),
+                        port=port,
+                        model=model,
+                        manufacturer="Apple",
+                        extra={
+                            'identifier': str(device.identifier) if device.identifier else None,
+                            'all_identifiers': [str(i) for i in device.all_identifiers] if device.all_identifiers else [],
+                            'services': [str(s.protocol) for s in device.services],
+                        }
+                    )
+                    self.speakers[speaker_id] = speaker
+                    discovered.append(speaker)
+                    logger.info(f"Found AirPlay: {device.name} at {device.address}")
+
+                except Exception as e:
+                    logger.debug(f"Error processing AirPlay device: {e}")
+
+            logger.info(f"AirPlay discovery found {len(discovered)} devices")
+
+        except ImportError:
+            logger.warning("pyatv not installed - AirPlay discovery disabled")
+        except Exception as e:
+            logger.error(f"AirPlay discovery error: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+
+        return discovered
+
     def get_speaker(self, speaker_id: str) -> Optional[NetworkSpeaker]:
         """Get a speaker by ID."""
         return self.speakers.get(speaker_id)
@@ -1032,8 +1109,47 @@ class NetworkSpeakerDiscovery:
         return [s for s in self.speakers.values() if s.speaker_type == speaker_type]
 
 
-# Global instance
-_discovery = NetworkSpeakerDiscovery()
+# Global instance - initialized with proper config dir
+_discovery: NetworkSpeakerDiscovery | None = None
+
+
+def _get_config_dir() -> Path:
+    """Get the config directory, respecting SONORIUM_DATA_DIR for Docker."""
+    import os
+    data_dir = os.environ.get('SONORIUM_DATA_DIR')
+    if data_dir:
+        # Docker environment - use /app/data/config
+        return Path(data_dir) / 'config'
+    else:
+        # Windows/local environment - use APPDATA
+        app_data = os.environ.get('APPDATA', os.path.expanduser('~'))
+        return Path(app_data) / 'Sonorium'
+
+
+def _get_discovery() -> NetworkSpeakerDiscovery:
+    """Get or create the global discovery instance."""
+    global _discovery
+    if _discovery is None:
+        config_dir = _get_config_dir()
+        logger.info(f"Initializing speaker discovery with config dir: {config_dir}")
+        _discovery = NetworkSpeakerDiscovery(config_dir=config_dir)
+    return _discovery
+
+
+def init_speaker_discovery(config_dir: Path | str | None = None) -> NetworkSpeakerDiscovery:
+    """
+    Initialize the global speaker discovery with a specific config directory.
+    Call this early in application startup to ensure speakers persist correctly.
+    """
+    global _discovery
+    if config_dir is None:
+        config_dir = _get_config_dir()
+    elif isinstance(config_dir, str):
+        config_dir = Path(config_dir)
+
+    logger.info(f"Initializing speaker discovery with config dir: {config_dir}")
+    _discovery = NetworkSpeakerDiscovery(config_dir=config_dir)
+    return _discovery
 
 
 async def discover_network_speakers(timeout: float = 10.0) -> list[dict]:
@@ -1042,18 +1158,21 @@ async def discover_network_speakers(timeout: float = 10.0) -> list[dict]:
 
     Returns list of speaker dicts for API responses.
     """
-    speakers = await _discovery.discover_all(timeout)
+    discovery = _get_discovery()
+    speakers = await discovery.discover_all(timeout)
     return [s.to_dict() for s in speakers]
 
 
 def get_discovered_speakers() -> list[dict]:
     """Get previously discovered speakers without re-scanning."""
-    return [s.to_dict() for s in _discovery.speakers.values()]
+    discovery = _get_discovery()
+    return [s.to_dict() for s in discovery.speakers.values()]
 
 
 def get_speaker(speaker_id: str) -> Optional[NetworkSpeaker]:
     """Get a specific speaker by ID."""
-    return _discovery.get_speaker(speaker_id)
+    discovery = _get_discovery()
+    return discovery.get_speaker(speaker_id)
 
 
 async def validate_network_speakers() -> dict[str, bool]:
@@ -1063,20 +1182,23 @@ async def validate_network_speakers() -> dict[str, bool]:
 
     Returns dict of speaker_id -> is_available.
     """
-    return await _discovery.validate_speakers()
+    discovery = _get_discovery()
+    return await discovery.validate_speakers()
 
 
 def get_available_speakers() -> list[dict]:
     """Get only speakers that are currently available."""
+    discovery = _get_discovery()
     return [
-        s.to_dict() for s in _discovery.speakers.values()
+        s.to_dict() for s in discovery.speakers.values()
         if s.status == SpeakerStatus.AVAILABLE
     ]
 
 
 def is_speaker_available(speaker_id: str) -> bool:
     """Check if a specific speaker is available."""
-    speaker = _discovery.get_speaker(speaker_id)
+    discovery = _get_discovery()
+    speaker = discovery.get_speaker(speaker_id)
     if speaker:
         return speaker.status == SpeakerStatus.AVAILABLE
     return False

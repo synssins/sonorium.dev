@@ -112,6 +112,8 @@ class NetworkStreamingManager:
                 success = await self._start_sonos(session, speaker_info)
             elif speaker_type == 'dlna':
                 success = await self._start_dlna(session, speaker_info)
+            elif speaker_type == 'airplay':
+                success = await self._start_airplay(session, speaker_info)
             else:
                 logger.error(f"Unknown speaker type: {speaker_type}")
                 session.state = StreamingState.ERROR
@@ -148,6 +150,8 @@ class NetworkStreamingManager:
                 await self._stop_sonos(session)
             elif session.speaker_type == 'dlna':
                 await self._stop_dlna(session)
+            elif session.speaker_type == 'airplay':
+                await self._stop_airplay(session)
 
             session.state = StreamingState.STOPPED
 
@@ -416,6 +420,76 @@ class NetworkStreamingManager:
                 await session._device.async_stop()
             except Exception as e:
                 logger.warning(f"Error stopping DLNA: {e}")
+
+    # --- AirPlay Implementation ---
+
+    async def _start_airplay(self, session: StreamingSession, speaker_info: dict) -> bool:
+        """Start streaming to an AirPlay device using pyatv."""
+        try:
+            import pyatv
+            from pyatv.const import Protocol
+
+            host = speaker_info.get('host')
+            if not host:
+                session.error_message = "No host specified for AirPlay"
+                return False
+
+            identifier = speaker_info.get('extra', {}).get('identifier')
+
+            logger.info(f"Connecting to AirPlay device at {host}...")
+
+            # Scan for the specific device
+            loop = asyncio.get_event_loop()
+            devices = await pyatv.scan(loop, hosts=[host], timeout=5)
+
+            if not devices:
+                session.error_message = f"Could not find AirPlay device at {host}"
+                return False
+
+            device_config = devices[0]
+
+            # Connect to the device
+            atv = await pyatv.connect(device_config, loop)
+            session._device = atv
+
+            logger.info(f"Connected to AirPlay device: {device_config.name}")
+
+            # Check if device supports streaming
+            if not atv.stream:
+                session.error_message = "AirPlay device does not support streaming"
+                await atv.close()
+                return False
+
+            # Start streaming the audio URL
+            # pyatv's stream_url method sends the URL to the device
+            logger.info(f"Starting AirPlay stream: {session.stream_url}")
+
+            await atv.stream.stream_url(session.stream_url)
+
+            logger.info(f"AirPlay {host} now playing {session.stream_url}")
+            return True
+
+        except ImportError:
+            session.error_message = "pyatv not installed"
+            logger.error("pyatv not installed")
+            return False
+        except Exception as e:
+            session.error_message = str(e)
+            logger.error(f"AirPlay streaming error: {e}", exc_info=True)
+            return False
+
+    async def _stop_airplay(self, session: StreamingSession):
+        """Stop AirPlay playback."""
+        if session._device:
+            try:
+                # Try to stop playback if supported
+                if hasattr(session._device, 'remote_control') and session._device.remote_control:
+                    await session._device.remote_control.stop()
+
+                # Close the connection
+                await session._device.close()
+            except Exception as e:
+                logger.warning(f"Error stopping AirPlay: {e}")
 
 
 # Global streaming manager instance
