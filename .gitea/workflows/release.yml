@@ -145,8 +145,18 @@ jobs:
       - name: Create Gitea Release
         shell: powershell
         run: |
-          $version = "${{ steps.get_version.outputs.VERSION }}"
-          $prerelease = "${{ steps.get_version.outputs.PRERELEASE }}" -eq "true"
+          # Get version directly from github.ref (more reliable)
+          $ref = "${{ github.ref }}"
+          $version = $ref -replace "refs/tags/", ""
+          Write-Host "Creating release for version: $version"
+
+          if ([string]::IsNullOrEmpty($version)) {
+            Write-Host "ERROR: Version is empty!"
+            exit 1
+          }
+
+          $prerelease = $version -match "alpha|beta"
+          Write-Host "Is prerelease: $prerelease"
 
           # Read changelog
           $changelog = ""
@@ -155,39 +165,42 @@ jobs:
           }
 
           $body = @"
-          $changelog
+$changelog
 
-          ---
+---
 
-          ### Downloads
-          - **Sonorium.exe** - Standalone Windows launcher (portable, ~37 MB)
-          - **core.zip** - Core files with embedded Python (~100+ MB)
+### Downloads
+- **Sonorium.exe** - Standalone Windows launcher (portable, ~37 MB)
+- **core.zip** - Core files with embedded Python (~100+ MB)
 
-          ### First-time setup
-          1. Download Sonorium.exe to any folder
-          2. Run it - the app will automatically download required files
-          3. No Python installation required - everything is self-contained!
+### First-time setup
+1. Download Sonorium.exe to any folder
+2. Run it - the app will automatically download required files
+3. No Python installation required - everything is self-contained!
 
-          ### Manual installation
-          1. Download both files
-          2. Extract core.zip to the same folder as Sonorium.exe
-          3. Run Sonorium.exe
-          "@
+### Manual installation
+1. Download both files
+2. Extract core.zip to the same folder as Sonorium.exe
+3. Run Sonorium.exe
+"@
 
-          # Create release
+          # Create release JSON manually to ensure proper formatting
           $releaseData = @{
-            tag_name = $version
-            name = "Sonorium $version"
-            body = $body
-            draft = $false
-            prerelease = $prerelease
-          } | ConvertTo-Json
+            "tag_name" = $version
+            "name" = "Sonorium $version"
+            "body" = $body
+            "draft" = $false
+            "prerelease" = $prerelease
+          } | ConvertTo-Json -Depth 10
+
+          Write-Host "Release JSON:"
+          Write-Host $releaseData
 
           Write-Host "Creating release..."
           $response = Invoke-RestMethod -Uri "http://192.168.1.222:3000/api/v1/repos/Synthesis/sonorium/releases" `
             -Method Post `
             -Headers @{ "Authorization" = "token ${{ secrets.GITEATOKEN }}" } `
-            -ContentType "application/json" `
+            -ContentType "application/json; charset=utf-8" `
             -Body $releaseData
 
           $releaseId = $response.id
