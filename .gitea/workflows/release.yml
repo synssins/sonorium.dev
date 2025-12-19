@@ -168,7 +168,7 @@ jobs:
 
           # Create release via Gitea API
           RELEASE_RESPONSE=$(curl -s -X POST \
-            -H "Authorization: token ${{ secrets.GITEA_TOKEN }}" \
+            -H "Authorization: token ${{ secrets.GITEATOKEN }}" \
             -H "Content-Type: application/json" \
             -d "{\"tag_name\": \"${VERSION}\", \"name\": \"Sonorium ${VERSION}\", \"body\": $(echo "$BODY" | jq -Rs .), \"draft\": false, \"prerelease\": ${PRERELEASE}}" \
             "http://192.168.1.222:3000/api/v1/repos/Synthesis/sonorium/releases")
@@ -179,19 +179,19 @@ jobs:
           # Upload assets
           echo "Uploading Sonorium.exe..."
           curl -s -X POST \
-            -H "Authorization: token ${{ secrets.GITEA_TOKEN }}" \
+            -H "Authorization: token ${{ secrets.GITEATOKEN }}" \
             -F "attachment=@app/windows/Sonorium.exe" \
             "http://192.168.1.222:3000/api/v1/repos/Synthesis/sonorium/releases/${RELEASE_ID}/assets?name=Sonorium.exe"
 
           echo "Uploading updater.exe..."
           curl -s -X POST \
-            -H "Authorization: token ${{ secrets.GITEA_TOKEN }}" \
+            -H "Authorization: token ${{ secrets.GITEATOKEN }}" \
             -F "attachment=@app/windows/updater.exe" \
             "http://192.168.1.222:3000/api/v1/repos/Synthesis/sonorium/releases/${RELEASE_ID}/assets?name=updater.exe"
 
           echo "Uploading core.zip..."
           curl -s -X POST \
-            -H "Authorization: token ${{ secrets.GITEA_TOKEN }}" \
+            -H "Authorization: token ${{ secrets.GITEATOKEN }}" \
             -F "attachment=@core.zip" \
             "http://192.168.1.222:3000/api/v1/repos/Synthesis/sonorium/releases/${RELEASE_ID}/assets?name=core.zip"
 
