@@ -92,10 +92,23 @@ jobs:
         shell: powershell
         run: |
           Write-Host "Installing core dependencies..."
+
+          # Install cffi first (required for miniaudio compilation)
+          & "python_embed/python.exe" -m pip install --no-warn-script-location cffi
+
+          # Build miniaudio from source for full portability
+          # This avoids wheel compatibility issues on different platforms
+          Write-Host "Building miniaudio from source..."
+          & "python_embed/python.exe" -m pip install --no-warn-script-location --no-binary miniaudio miniaudio
+
+          # Install remaining dependencies
           & "python_embed/python.exe" -m pip install --no-warn-script-location -r app/core/requirements.txt
 
           Write-Host "Verifying pyatv installation..."
           & "python_embed/python.exe" -c "import pyatv; print(f'pyatv version: {pyatv.__version__}')"
+
+          Write-Host "Verifying miniaudio installation..."
+          & "python_embed/python.exe" -c "import miniaudio; print(f'miniaudio version: {miniaudio.__version__}')"
 
           Write-Host "Installed packages:"
           & "python_embed/python.exe" -m pip list
