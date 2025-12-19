@@ -1,0 +1,232 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'  # Trigger on version tags like v0.1.0-alpha, v1.0.0, etc.
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Determine source branch
+        id: branch
+        shell: powershell
+        run: |
+          $ref = "${{ github.ref }}"
+          Write-Host "Tag ref: $ref"
+          if ($ref -match "alpha|beta") {
+            echo "SOURCE_BRANCH=dev" >> $env:GITHUB_OUTPUT
+            Write-Host "Building alpha/beta release from dev branch"
+          } else {
+            echo "SOURCE_BRANCH=main" >> $env:GITHUB_OUTPUT
+            Write-Host "Building stable release from main branch"
+          }
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.branch.outputs.SOURCE_BRANCH }}
+          fetch-depth: 0
+
+      - name: Fetch tag annotations
+        shell: powershell
+        run: git fetch --tags --force
+
+      - name: Verify branch
+        shell: powershell
+        run: |
+          Write-Host "Building from branch: ${{ steps.branch.outputs.SOURCE_BRANCH }}"
+          Write-Host "Current HEAD: $(git rev-parse HEAD)"
+          Write-Host "Tag: ${{ github.ref }}"
+
+      - name: Install build dependencies
+        shell: powershell
+        run: |
+          Write-Host "Python version:"
+          python --version
+          python -m pip install --upgrade pip
+          python -m pip install PyQt6 pyinstaller pillow
+
+      - name: Create icon.ico from PNG
+        shell: powershell
+        run: |
+          python -c "from PIL import Image; img = Image.open('app/core/icon.png'); img.save('app/core/icon.ico', format='ICO', sizes=[(16,16), (32,32), (48,48), (64,64), (128,128), (256,256)])"
+
+      - name: Build Sonorium.exe
+        shell: powershell
+        run: |
+          cd app/windows/src
+          python -m PyInstaller --distpath .. --workpath ../build --clean Sonorium.spec
+
+      - name: Build updater.exe
+        shell: powershell
+        run: |
+          cd app/windows/src
+          python -m PyInstaller --distpath .. --workpath ../build --clean Updater.spec
+
+      - name: Download Python embeddable
+        shell: powershell
+        run: |
+          $pythonUrl = "https://www.python.org/ftp/python/3.11.9/python-3.11.9-embed-amd64.zip"
+          $pipUrl = "https://bootstrap.pypa.io/get-pip.py"
+
+          New-Item -ItemType Directory -Force -Path "python_embed"
+
+          Write-Host "Downloading Python embeddable..."
+          Invoke-WebRequest -Uri $pythonUrl -OutFile "python_embed.zip"
+          Expand-Archive -Path "python_embed.zip" -DestinationPath "python_embed" -Force
+          Remove-Item "python_embed.zip"
+
+          Write-Host "Enabling pip in embedded Python..."
+          $pthFile = "python_embed/python311._pth"
+          $pthContent = Get-Content $pthFile
+          $newContent = $pthContent -replace '#import site', 'import site'
+          $newContent += "`nLib\site-packages"
+          Set-Content -Path $pthFile -Value $newContent
+
+          Write-Host "Installing pip..."
+          Invoke-WebRequest -Uri $pipUrl -OutFile "python_embed/get-pip.py"
+          & "python_embed/python.exe" "python_embed/get-pip.py" --no-warn-script-location
+          Remove-Item "python_embed/get-pip.py"
+
+      - name: Install core dependencies into embedded Python
+        shell: powershell
+        run: |
+          Write-Host "Installing core dependencies..."
+          & "python_embed/python.exe" -m pip install --no-warn-script-location -r app/core/requirements.txt
+
+          Write-Host "Verifying pyatv installation..."
+          & "python_embed/python.exe" -c "import pyatv; print(f'pyatv version: {pyatv.__version__}')"
+
+          Write-Host "Installed packages:"
+          & "python_embed/python.exe" -m pip list
+
+      - name: Create core.zip with embedded Python
+        shell: powershell
+        run: |
+          Rename-Item -Path "python_embed" -NewName "python"
+          Compress-Archive -Path "app/core", "app/themes", "python" -DestinationPath core.zip -Force
+
+          Write-Host "core.zip created with embedded Python"
+          $zipSize = (Get-Item "core.zip").Length / 1MB
+          Write-Host "Size: $([math]::Round($zipSize, 2)) MB"
+
+      - name: Get version info
+        id: get_version
+        shell: powershell
+        run: |
+          $ref = "${{ github.ref }}"
+          $version = $ref -replace "refs/tags/", ""
+          echo "VERSION=$version" >> $env:GITHUB_OUTPUT
+
+          if ($version -match "alpha|beta") {
+            echo "PRERELEASE=true" >> $env:GITHUB_OUTPUT
+          } else {
+            echo "PRERELEASE=false" >> $env:GITHUB_OUTPUT
+          }
+
+          Write-Host "Version: $version"
+
+      - name: Get tag message
+        id: get_changelog
+        shell: powershell
+        run: |
+          $version = "${{ steps.get_version.outputs.VERSION }}"
+          $tagMessage = git tag -l --format='%(contents)' $version
+
+          # Write to file to preserve multiline
+          $tagMessage | Out-File -FilePath changelog.txt -Encoding UTF8
+
+          Write-Host "Changelog:"
+          Write-Host $tagMessage
+
+      - name: Create Gitea Release
+        shell: powershell
+        run: |
+          # Get version directly from github.ref (more reliable)
+          $ref = "${{ github.ref }}"
+          $version = $ref -replace "refs/tags/", ""
+          Write-Host "Creating release for version: $version"
+
+          if ([string]::IsNullOrEmpty($version)) {
+            Write-Host "ERROR: Version is empty!"
+            exit 1
+          }
+
+          $prerelease = $version -match "alpha|beta"
+          Write-Host "Is prerelease: $prerelease"
+
+          # Read changelog
+          $changelog = ""
+          if (Test-Path changelog.txt) {
+            $changelog = Get-Content changelog.txt -Raw
+          }
+
+          $body = @"
+$changelog
+
+---
+
+### Downloads
+- **Sonorium.exe** - Standalone Windows launcher (portable, ~37 MB)
+- **core.zip** - Core files with embedded Python (~100+ MB)
+
+### First-time setup
+1. Download Sonorium.exe to any folder
+2. Run it - the app will automatically download required files
+3. No Python installation required - everything is self-contained!
+
+### Manual installation
+1. Download both files
+2. Extract core.zip to the same folder as Sonorium.exe
+3. Run Sonorium.exe
+"@
+
+          # Create release JSON manually to ensure proper formatting
+          $releaseData = @{
+            "tag_name" = $version
+            "name" = "Sonorium $version"
+            "body" = $body
+            "draft" = $false
+            "prerelease" = $prerelease
+          } | ConvertTo-Json -Depth 10
+
+          Write-Host "Release JSON:"
+          Write-Host $releaseData
+
+          Write-Host "Creating release..."
+          $response = Invoke-RestMethod -Uri "http://192.168.1.222:3000/api/v1/repos/Synthesis/sonorium/releases" `
+            -Method Post `
+            -Headers @{ "Authorization" = "token ${{ secrets.GITEATOKEN }}" } `
+            -ContentType "application/json; charset=utf-8" `
+            -Body $releaseData
+
+          $releaseId = $response.id
+          Write-Host "Created release ID: $releaseId"
+
+          # Upload Sonorium.exe
+          Write-Host "Uploading Sonorium.exe..."
+          $exePath = "app/windows/Sonorium.exe"
+          curl.exe -s -X POST `
+            -H "Authorization: token ${{ secrets.GITEATOKEN }}" `
+            -F "attachment=@$exePath" `
+            "http://192.168.1.222:3000/api/v1/repos/Synthesis/sonorium/releases/$releaseId/assets?name=Sonorium.exe"
+
+          # Upload updater.exe
+          Write-Host "Uploading updater.exe..."
+          $updaterPath = "app/windows/updater.exe"
+          curl.exe -s -X POST `
+            -H "Authorization: token ${{ secrets.GITEATOKEN }}" `
+            -F "attachment=@$updaterPath" `
+            "http://192.168.1.222:3000/api/v1/repos/Synthesis/sonorium/releases/$releaseId/assets?name=updater.exe"
+
+          # Upload core.zip
+          Write-Host "Uploading core.zip..."
+          curl.exe -s -X POST `
+            -H "Authorization: token ${{ secrets.GITEATOKEN }}" `
+            -F "attachment=@core.zip" `
+            "http://192.168.1.222:3000/api/v1/repos/Synthesis/sonorium/releases/$releaseId/assets?name=core.zip"
+
+          Write-Host "Release created successfully!"

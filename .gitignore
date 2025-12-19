@@ -150,6 +150,7 @@ cython_debug/
 CLAUDE.md
 TODO.md
 Completed.md
+Summary.md
 
 # Sonorium app user data folders (created at runtime)
 app/backup/

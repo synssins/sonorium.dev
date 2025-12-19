@@ -39,7 +39,7 @@ from PyQt6.QtGui import QIcon, QPixmap, QAction, QDesktopServices, QFont, QTextC
 
 # Constants
 APP_NAME = "Sonorium"
-APP_VERSION = "0.2.26"
+APP_VERSION = "0.2.34-alpha"
 DEFAULT_PORT = 8008
 
 # Global logger instance
@@ -106,12 +106,12 @@ def get_logger() -> logging.Logger:
 
 
 WIKI_URL = "https://github.com/synssins/sonorium/wiki"
-REPO_URL = "https://github.com/synssins/sonorium"
+REPO_URL = "http://192.168.1.222:3000/Synthesis/sonorium"
 
-# GitHub Releases API URL (includes prereleases)
+# Gitea Releases API URL (includes prereleases)
 # Uses /releases to get all releases including alpha/beta
-RELEASES_API_URL = "https://api.github.com/repos/synssins/sonorium/releases"
-CORE_ZIP_FALLBACK = "https://github.com/synssins/sonorium/releases/download/v0.1.0-alpha/core.zip"
+RELEASES_API_URL = "http://192.168.1.222:3000/api/v1/repos/Synthesis/sonorium/releases"
+CORE_ZIP_FALLBACK = "http://192.168.1.222:3000/Synthesis/sonorium/releases/download/v0.1.0-alpha/core.zip"
 
 # Required folder structure (relative to app root)
 REQUIRED_FOLDERS = ['core', 'config', 'logs', 'themes', 'plugins']
@@ -167,22 +167,35 @@ def create_folder_structure():
 
 def load_config() -> dict:
     """Load configuration from config.json."""
-    config_path = get_config_path()
-    if config_path.exists():
-        try:
-            with open(config_path, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return {
+    # Default config with all settings
+    defaults = {
         'server_port': DEFAULT_PORT,
         'start_minimized': False,
         'minimize_to_tray': True,
         'auto_start_server': True,
         'master_volume': 0.8,
         'repo_url': REPO_URL,
-        'update_branch': 'dev'
+        'update_branch': 'dev',
+        'check_updates_on_startup': True,
+        'include_prereleases': False,  # Persisted - allows dev/alpha updates
     }
+
+    config_path = get_config_path()
+    if config_path.exists():
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                saved_config = json.load(f)
+                # Merge saved config over defaults (preserves new defaults, keeps saved values)
+                merged = defaults.copy()
+                merged.update(saved_config)
+                return merged
+        except Exception as e:
+            # Log the error so we know if config loading fails
+            try:
+                get_logger().error(f"Failed to load config.json: {e}")
+            except:
+                pass
+    return defaults
 
 
 def save_config(config: dict):
@@ -261,12 +274,12 @@ class SetupThread(QThread):
         self.logger = get_logger()
 
     def _get_download_url(self) -> str:
-        """Get the core.zip download URL from GitHub Releases API."""
+        """Get the core.zip download URL from Gitea Releases API."""
         self.logger.debug(f"Fetching releases from: {RELEASES_API_URL}")
         try:
             req = urllib.request.Request(
                 RELEASES_API_URL,
-                headers={'Accept': 'application/vnd.github.v3+json', 'User-Agent': 'Sonorium-Launcher'}
+                headers={'Accept': 'application/json', 'User-Agent': 'Sonorium-Launcher'}
             )
             with urllib.request.urlopen(req, timeout=10) as response:
                 releases = json.loads(response.read().decode('utf-8'))
@@ -276,6 +289,7 @@ class SetupThread(QThread):
                     tag = release.get('tag_name', 'unknown')
                     for asset in release.get('assets', []):
                         if asset.get('name') == 'core.zip':
+                            # Gitea uses 'browser_download_url' like GitHub
                             url = asset.get('browser_download_url')
                             self.logger.info(f"Found core.zip in release {tag}: {url}")
                             return url
@@ -399,13 +413,29 @@ class ServerThread(QThread):
                 self.error_occurred.emit(f"Core not found: {main_script}")
                 return
 
-            args = [str(python_exe), str(main_script), '--no-tray', '--no-browser', '--port', str(self.port)]
-            self.logger.info(f"Launching: {' '.join(args)}")
+            # For embedded Python, we need to inject sys.path since PYTHONPATH is ignored
+            # Use -c to run a bootstrap that adds core_dir to sys.path then runs main.py
+            if getattr(sys, 'frozen', False) and (app_dir / 'python' / 'python.exe').exists():
+                # Embedded Python - use bootstrap code to set up sys.path
+                # Use runpy to properly handle __name__ and sys.argv
+                bootstrap_code = f'''
+import sys
+sys.path.insert(0, r"{core_dir}")
+sys.argv = [r"{main_script}", "--no-tray", "--no-browser", "--port", "{self.port}"]
+import runpy
+runpy.run_path(r"{main_script}", run_name="__main__")
+'''
+                args = [str(python_exe), '-c', bootstrap_code]
+            else:
+                # System Python - PYTHONPATH works fine
+                args = [str(python_exe), str(main_script), '--no-tray', '--no-browser', '--port', str(self.port)]
 
-            # Set up environment
+            self.logger.info(f"Launching with embedded Python: {python_exe}")
+            self.logger.debug(f"Core dir: {core_dir}")
+
+            # Set up environment (still set PYTHONPATH for system Python fallback)
             env = os.environ.copy()
             env['PYTHONPATH'] = str(core_dir)
-            self.logger.debug(f"PYTHONPATH set to: {core_dir}")
 
             self.output_received.emit(f"Starting server on port {self.port}...")
 
@@ -536,6 +566,15 @@ class UpdateCheckThread(QThread):
     no_update = pyqtSignal()
     error = pyqtSignal(str)
 
+    def __init__(self, include_prereleases: bool = False):
+        super().__init__()
+        self.include_prereleases = include_prereleases
+
+    def _is_prerelease(self, version: str) -> bool:
+        """Check if a version string indicates a pre-release."""
+        version_lower = version.lower()
+        return any(tag in version_lower for tag in ['alpha', 'beta', 'rc', 'dev'])
+
     def _parse_version(self, v: str) -> tuple:
         """Parse version string for comparison.
 
@@ -552,14 +591,14 @@ class UpdateCheckThread(QThread):
         return tuple(result)
 
     def run(self):
-        """Check GitHub releases for updates."""
+        """Check Gitea releases for updates."""
         logger = get_logger()
-        logger.info(f"Checking for updates (current version: {APP_VERSION})")
+        logger.info(f"Checking for updates (current version: {APP_VERSION}, include_prereleases: {self.include_prereleases})")
 
         try:
             req = urllib.request.Request(
                 RELEASES_API_URL,
-                headers={'Accept': 'application/vnd.github.v3+json', 'User-Agent': 'Sonorium-Launcher'}
+                headers={'Accept': 'application/json', 'User-Agent': 'Sonorium-Launcher'}
             )
             with urllib.request.urlopen(req, timeout=15) as response:
                 releases = json.loads(response.read().decode('utf-8'))
@@ -575,6 +614,12 @@ class UpdateCheckThread(QThread):
                     continue
 
                 tag = release.get('tag_name', '').lstrip('v')
+
+                # Skip pre-releases if not opted in
+                if self._is_prerelease(tag) and not self.include_prereleases:
+                    logger.debug(f"Skipping pre-release {tag} (user opted out)")
+                    continue
+
                 tag_parsed = self._parse_version(tag)
                 logger.debug(f"Comparing {tag} ({tag_parsed}) > {current} ({current_parsed})")
 
@@ -805,9 +850,23 @@ class UpdateDialog(QDialog):
                                    "Please download it manually from the releases page.")
                 return
 
-        # Download and extract core.zip if available
+        # Stop the server before extracting core files
+        # The Python runtime files (.pyd) are locked while the server is running
         core_url = self.release_info.get('core_url')
         if core_url:
+            self.status_label.setText("Stopping server for update...")
+            QApplication.processEvents()
+            logger.info("Stopping server before core extraction...")
+
+            # Get reference to main window to stop server
+            main_window = self.parent()
+            if main_window and hasattr(main_window, 'stop_server'):
+                main_window.stop_server()
+                # Give the server time to fully stop and release file locks
+                import time
+                time.sleep(2)
+                logger.info("Server stopped, proceeding with core extraction")
+
             self.status_label.setText("Downloading core files...")
             QApplication.processEvents()
             logger.info(f"Downloading core.zip from: {core_url}")
@@ -883,14 +942,14 @@ class UpdateDialog(QDialog):
             return False
 
     def _download_updater(self, target_path: Path) -> bool:
-        """Download updater.exe from GitHub releases."""
+        """Download updater.exe from Gitea releases."""
         logger = get_logger()
 
         try:
             # Get the updater.exe URL from the same release
             req = urllib.request.Request(
                 RELEASES_API_URL,
-                headers={'Accept': 'application/vnd.github.v3+json', 'User-Agent': 'Sonorium-Launcher'}
+                headers={'Accept': 'application/json', 'User-Agent': 'Sonorium-Launcher'}
             )
 
             with urllib.request.urlopen(req, timeout=15) as response:
@@ -992,6 +1051,11 @@ class SettingsDialog(QDialog):
         self.check_updates.setChecked(self.config.get('check_updates_on_startup', True))
         updates_form.addRow("Check on startup:", self.check_updates)
 
+        self.include_prereleases = QCheckBox()
+        self.include_prereleases.setChecked(self.config.get('include_prereleases', False))
+        self.include_prereleases.setToolTip("Include alpha and beta releases in update checks")
+        updates_form.addRow("Include dev releases:", self.include_prereleases)
+
         updates_group.setLayout(updates_form)
         updates_layout.addWidget(updates_group)
         updates_layout.addStretch()
@@ -1048,6 +1112,7 @@ class SettingsDialog(QDialog):
         self.config['auto_start_server'] = self.auto_start_server.isChecked()
         self.config['server_port'] = self.port_spin.value()
         self.config['check_updates_on_startup'] = self.check_updates.isChecked()
+        self.config['include_prereleases'] = self.include_prereleases.isChecked()
         return self.config
 
 
@@ -1146,7 +1211,8 @@ class MainWindow(QMainWindow):
 
     def check_for_updates(self, silent: bool = True):
         """Check for updates from GitHub."""
-        self.update_check_thread = UpdateCheckThread()
+        include_prereleases = self.config.get('include_prereleases', False)
+        self.update_check_thread = UpdateCheckThread(include_prereleases=include_prereleases)
         self.update_check_thread.update_available.connect(
             lambda info: self.on_update_available(info, silent)
         )
