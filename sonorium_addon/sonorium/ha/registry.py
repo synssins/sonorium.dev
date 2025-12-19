@@ -316,7 +316,8 @@ class HARegistry:
                 floor = Floor(
                     floor_id=item.get("floor_id", ""),
                     name=item.get("name", ""),
-                    level=item.get("level", 0),
+                    # Handle explicit null from HA - .get() only defaults when key is missing
+                    level=item.get("level") or 0,
                 )
                 floors[floor.floor_id] = floor
 
@@ -352,7 +353,8 @@ class HARegistry:
                 floor = Floor(
                     floor_id=item.get("floor_id", ""),
                     name=item.get("name", ""),
-                    level=item.get("level", 0),
+                    # Handle explicit null from HA - .get() only defaults when key is missing
+                    level=item.get("level") or 0,
                 )
                 floors[floor.floor_id] = floor
             logger.info(f"  Found {len(floors)} floors")
