@@ -12,16 +12,17 @@ jobs:
     steps:
       - name: Determine source branch
         id: branch
+        shell: pwsh
         run: |
-          # Alpha/beta builds come from dev, stable builds come from main
-          if [[ "${{ github.ref }}" == *"alpha"* ]] || [[ "${{ github.ref }}" == *"beta"* ]]; then
-            echo "SOURCE_BRANCH=dev" >> $GITHUB_OUTPUT
-            echo "Building alpha/beta release from dev branch"
-          else
-            echo "SOURCE_BRANCH=main" >> $GITHUB_OUTPUT
-            echo "Building stable release from main branch"
-          fi
-        shell: bash
+          $ref = "${{ github.ref }}"
+          Write-Host "Tag ref: $ref"
+          if ($ref -match "alpha|beta") {
+            echo "SOURCE_BRANCH=dev" >> $env:GITHUB_OUTPUT
+            Write-Host "Building alpha/beta release from dev branch"
+          } else {
+            echo "SOURCE_BRANCH=main" >> $env:GITHUB_OUTPUT
+            Write-Host "Building stable release from main branch"
+          }
 
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -30,15 +31,15 @@ jobs:
           fetch-depth: 0
 
       - name: Fetch tag annotations
+        shell: pwsh
         run: git fetch --tags --force
-        shell: bash
 
       - name: Verify branch
+        shell: pwsh
         run: |
-          echo "Building from branch: ${{ steps.branch.outputs.SOURCE_BRANCH }}"
-          echo "Current HEAD: $(git rev-parse HEAD)"
-          echo "Tag: ${{ github.ref }}"
-        shell: bash
+          Write-Host "Building from branch: ${{ steps.branch.outputs.SOURCE_BRANCH }}"
+          Write-Host "Current HEAD: $(git rev-parse HEAD)"
+          Write-Host "Tag: ${{ github.ref }}"
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -46,40 +47,41 @@ jobs:
           python-version: '3.11'
 
       - name: Install build dependencies
+        shell: pwsh
         run: |
           python -m pip install --upgrade pip
           pip install PyQt6 pyinstaller pillow
 
       - name: Create icon.ico from PNG
+        shell: pwsh
         run: |
           python -c "from PIL import Image; img = Image.open('app/core/icon.png'); img.save('app/core/icon.ico', format='ICO', sizes=[(16,16), (32,32), (48,48), (64,64), (128,128), (256,256)])"
 
       - name: Build Sonorium.exe
+        shell: pwsh
         run: |
           cd app/windows/src
           pyinstaller --distpath .. --workpath ../build --clean Sonorium.spec
 
       - name: Build updater.exe
+        shell: pwsh
         run: |
           cd app/windows/src
           pyinstaller --distpath .. --workpath ../build --clean Updater.spec
 
       - name: Download Python embeddable
+        shell: pwsh
         run: |
-          # Download Python 3.11 embeddable package (64-bit)
           $pythonUrl = "https://www.python.org/ftp/python/3.11.9/python-3.11.9-embed-amd64.zip"
           $pipUrl = "https://bootstrap.pypa.io/get-pip.py"
 
-          # Create python directory
           New-Item -ItemType Directory -Force -Path "python_embed"
 
-          # Download and extract Python embeddable
           Write-Host "Downloading Python embeddable..."
           Invoke-WebRequest -Uri $pythonUrl -OutFile "python_embed.zip"
           Expand-Archive -Path "python_embed.zip" -DestinationPath "python_embed" -Force
           Remove-Item "python_embed.zip"
 
-          # Enable pip by modifying python311._pth
           Write-Host "Enabling pip in embedded Python..."
           $pthFile = "python_embed/python311._pth"
           $pthContent = Get-Content $pthFile
@@ -87,14 +89,13 @@ jobs:
           $newContent += "`nLib\site-packages"
           Set-Content -Path $pthFile -Value $newContent
 
-          # Download and run get-pip.py
           Write-Host "Installing pip..."
           Invoke-WebRequest -Uri $pipUrl -OutFile "python_embed/get-pip.py"
           & "python_embed/python.exe" "python_embed/get-pip.py" --no-warn-script-location
           Remove-Item "python_embed/get-pip.py"
-        shell: pwsh
 
       - name: Install core dependencies into embedded Python
+        shell: pwsh
         run: |
           Write-Host "Installing core dependencies..."
           & "python_embed/python.exe" -m pip install --no-warn-script-location -r app/core/requirements.txt
@@ -104,9 +105,9 @@ jobs:
 
           Write-Host "Installed packages:"
           & "python_embed/python.exe" -m pip list
-        shell: pwsh
 
       - name: Create core.zip with embedded Python
+        shell: pwsh
         run: |
           Rename-Item -Path "python_embed" -NewName "python"
           Compress-Archive -Path "app/core", "app/themes", "python" -DestinationPath core.zip -Force
@@ -114,41 +115,50 @@ jobs:
           Write-Host "core.zip created with embedded Python"
           $zipSize = (Get-Item "core.zip").Length / 1MB
           Write-Host "Size: $([math]::Round($zipSize, 2)) MB"
-        shell: pwsh
 
-      - name: Get version from tag
+      - name: Get version info
         id: get_version
+        shell: pwsh
         run: |
-          VERSION=${GITHUB_REF#refs/tags/}
-          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
-          # Determine if prerelease
-          if [[ "$VERSION" == *"alpha"* ]] || [[ "$VERSION" == *"beta"* ]]; then
-            echo "PRERELEASE=true" >> $GITHUB_OUTPUT
-          else
-            echo "PRERELEASE=false" >> $GITHUB_OUTPUT
-          fi
-        shell: bash
+          $ref = "${{ github.ref }}"
+          $version = $ref -replace "refs/tags/", ""
+          echo "VERSION=$version" >> $env:GITHUB_OUTPUT
+
+          if ($version -match "alpha|beta") {
+            echo "PRERELEASE=true" >> $env:GITHUB_OUTPUT
+          } else {
+            echo "PRERELEASE=false" >> $env:GITHUB_OUTPUT
+          }
+
+          Write-Host "Version: $version"
 
       - name: Get tag message
         id: get_changelog
+        shell: pwsh
         run: |
-          TAG_MESSAGE=$(git tag -l --format='%(contents)' ${GITHUB_REF#refs/tags/})
-          echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
-          echo "$TAG_MESSAGE" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-        shell: bash
+          $version = "${{ steps.get_version.outputs.VERSION }}"
+          $tagMessage = git tag -l --format='%(contents)' $version
+
+          # Write to file to preserve multiline
+          $tagMessage | Out-File -FilePath changelog.txt -Encoding UTF8
+
+          Write-Host "Changelog:"
+          Write-Host $tagMessage
 
       - name: Create Gitea Release
+        shell: pwsh
         run: |
-          VERSION="${{ steps.get_version.outputs.VERSION }}"
-          PRERELEASE="${{ steps.get_version.outputs.PRERELEASE }}"
-          CHANGELOG=$(cat << 'CHANGELOG_EOF'
-          ${{ steps.get_changelog.outputs.CHANGELOG }}
-          CHANGELOG_EOF
-          )
+          $version = "${{ steps.get_version.outputs.VERSION }}"
+          $prerelease = "${{ steps.get_version.outputs.PRERELEASE }}" -eq "true"
 
-          # Create release body
-          BODY="${CHANGELOG}
+          # Read changelog
+          $changelog = ""
+          if (Test-Path changelog.txt) {
+            $changelog = Get-Content changelog.txt -Raw
+          }
+
+          $body = @"
+          $changelog
 
           ---
 
@@ -164,36 +174,49 @@ jobs:
           ### Manual installation
           1. Download both files
           2. Extract core.zip to the same folder as Sonorium.exe
-          3. Run Sonorium.exe"
+          3. Run Sonorium.exe
+          "@
 
-          # Create release via Gitea API
-          RELEASE_RESPONSE=$(curl -s -X POST \
-            -H "Authorization: token ${{ secrets.GITEATOKEN }}" \
-            -H "Content-Type: application/json" \
-            -d "{\"tag_name\": \"${VERSION}\", \"name\": \"Sonorium ${VERSION}\", \"body\": $(echo "$BODY" | jq -Rs .), \"draft\": false, \"prerelease\": ${PRERELEASE}}" \
-            "http://192.168.1.222:3000/api/v1/repos/Synthesis/sonorium/releases")
+          # Create release
+          $releaseData = @{
+            tag_name = $version
+            name = "Sonorium $version"
+            body = $body
+            draft = $false
+            prerelease = $prerelease
+          } | ConvertTo-Json
 
-          RELEASE_ID=$(echo "$RELEASE_RESPONSE" | jq -r '.id')
-          echo "Created release ID: $RELEASE_ID"
+          Write-Host "Creating release..."
+          $response = Invoke-RestMethod -Uri "http://192.168.1.222:3000/api/v1/repos/Synthesis/sonorium/releases" `
+            -Method Post `
+            -Headers @{ "Authorization" = "token ${{ secrets.GITEATOKEN }}" } `
+            -ContentType "application/json" `
+            -Body $releaseData
 
-          # Upload assets
-          echo "Uploading Sonorium.exe..."
-          curl -s -X POST \
-            -H "Authorization: token ${{ secrets.GITEATOKEN }}" \
-            -F "attachment=@app/windows/Sonorium.exe" \
-            "http://192.168.1.222:3000/api/v1/repos/Synthesis/sonorium/releases/${RELEASE_ID}/assets?name=Sonorium.exe"
+          $releaseId = $response.id
+          Write-Host "Created release ID: $releaseId"
 
-          echo "Uploading updater.exe..."
-          curl -s -X POST \
-            -H "Authorization: token ${{ secrets.GITEATOKEN }}" \
-            -F "attachment=@app/windows/updater.exe" \
-            "http://192.168.1.222:3000/api/v1/repos/Synthesis/sonorium/releases/${RELEASE_ID}/assets?name=updater.exe"
+          # Upload Sonorium.exe
+          Write-Host "Uploading Sonorium.exe..."
+          $exePath = "app/windows/Sonorium.exe"
+          curl.exe -s -X POST `
+            -H "Authorization: token ${{ secrets.GITEATOKEN }}" `
+            -F "attachment=@$exePath" `
+            "http://192.168.1.222:3000/api/v1/repos/Synthesis/sonorium/releases/$releaseId/assets?name=Sonorium.exe"
 
-          echo "Uploading core.zip..."
-          curl -s -X POST \
-            -H "Authorization: token ${{ secrets.GITEATOKEN }}" \
-            -F "attachment=@core.zip" \
-            "http://192.168.1.222:3000/api/v1/repos/Synthesis/sonorium/releases/${RELEASE_ID}/assets?name=core.zip"
+          # Upload updater.exe
+          Write-Host "Uploading updater.exe..."
+          $updaterPath = "app/windows/updater.exe"
+          curl.exe -s -X POST `
+            -H "Authorization: token ${{ secrets.GITEATOKEN }}" `
+            -F "attachment=@$updaterPath" `
+            "http://192.168.1.222:3000/api/v1/repos/Synthesis/sonorium/releases/$releaseId/assets?name=updater.exe"
 
-          echo "Release created successfully!"
-        shell: bash
+          # Upload core.zip
+          Write-Host "Uploading core.zip..."
+          curl.exe -s -X POST `
+            -H "Authorization: token ${{ secrets.GITEATOKEN }}" `
+            -F "attachment=@core.zip" `
+            "http://192.168.1.222:3000/api/v1/repos/Synthesis/sonorium/releases/$releaseId/assets?name=core.zip"
+
+          Write-Host "Release created successfully!"
