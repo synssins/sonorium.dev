@@ -10,36 +10,22 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - name: Determine source branch
-        id: branch
-        shell: powershell
-        run: |
-          $ref = "${{ github.ref }}"
-          Write-Host "Tag ref: $ref"
-          if ($ref -match "alpha|beta") {
-            echo "SOURCE_BRANCH=dev" >> $env:GITHUB_OUTPUT
-            Write-Host "Building alpha/beta release from dev branch"
-          } else {
-            echo "SOURCE_BRANCH=main" >> $env:GITHUB_OUTPUT
-            Write-Host "Building stable release from main branch"
-          }
-
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: ${{ steps.branch.outputs.SOURCE_BRANCH }}
+          ref: ${{ github.ref }}
           fetch-depth: 0
 
       - name: Fetch tag annotations
         shell: powershell
         run: git fetch --tags --force
 
-      - name: Verify branch
+      - name: Verify checkout
         shell: powershell
         run: |
-          Write-Host "Building from branch: ${{ steps.branch.outputs.SOURCE_BRANCH }}"
+          Write-Host "Building tag: ${{ github.ref }}"
           Write-Host "Current HEAD: $(git rev-parse HEAD)"
-          Write-Host "Tag: ${{ github.ref }}"
+          Write-Host "Git describe: $(git describe --tags --always)"
 
       - name: Install build dependencies
         shell: powershell
