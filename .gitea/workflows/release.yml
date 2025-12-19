@@ -12,7 +12,7 @@ jobs:
     steps:
       - name: Determine source branch
         id: branch
-        shell: pwsh
+        shell: powershell
         run: |
           $ref = "${{ github.ref }}"
           Write-Host "Tag ref: $ref"
@@ -31,11 +31,11 @@ jobs:
           fetch-depth: 0
 
       - name: Fetch tag annotations
-        shell: pwsh
+        shell: powershell
         run: git fetch --tags --force
 
       - name: Verify branch
-        shell: pwsh
+        shell: powershell
         run: |
           Write-Host "Building from branch: ${{ steps.branch.outputs.SOURCE_BRANCH }}"
           Write-Host "Current HEAD: $(git rev-parse HEAD)"
@@ -47,30 +47,30 @@ jobs:
           python-version: '3.11'
 
       - name: Install build dependencies
-        shell: pwsh
+        shell: powershell
         run: |
           python -m pip install --upgrade pip
           pip install PyQt6 pyinstaller pillow
 
       - name: Create icon.ico from PNG
-        shell: pwsh
+        shell: powershell
         run: |
           python -c "from PIL import Image; img = Image.open('app/core/icon.png'); img.save('app/core/icon.ico', format='ICO', sizes=[(16,16), (32,32), (48,48), (64,64), (128,128), (256,256)])"
 
       - name: Build Sonorium.exe
-        shell: pwsh
+        shell: powershell
         run: |
           cd app/windows/src
           pyinstaller --distpath .. --workpath ../build --clean Sonorium.spec
 
       - name: Build updater.exe
-        shell: pwsh
+        shell: powershell
         run: |
           cd app/windows/src
           pyinstaller --distpath .. --workpath ../build --clean Updater.spec
 
       - name: Download Python embeddable
-        shell: pwsh
+        shell: powershell
         run: |
           $pythonUrl = "https://www.python.org/ftp/python/3.11.9/python-3.11.9-embed-amd64.zip"
           $pipUrl = "https://bootstrap.pypa.io/get-pip.py"
@@ -95,7 +95,7 @@ jobs:
           Remove-Item "python_embed/get-pip.py"
 
       - name: Install core dependencies into embedded Python
-        shell: pwsh
+        shell: powershell
         run: |
           Write-Host "Installing core dependencies..."
           & "python_embed/python.exe" -m pip install --no-warn-script-location -r app/core/requirements.txt
@@ -107,7 +107,7 @@ jobs:
           & "python_embed/python.exe" -m pip list
 
       - name: Create core.zip with embedded Python
-        shell: pwsh
+        shell: powershell
         run: |
           Rename-Item -Path "python_embed" -NewName "python"
           Compress-Archive -Path "app/core", "app/themes", "python" -DestinationPath core.zip -Force
@@ -118,7 +118,7 @@ jobs:
 
       - name: Get version info
         id: get_version
-        shell: pwsh
+        shell: powershell
         run: |
           $ref = "${{ github.ref }}"
           $version = $ref -replace "refs/tags/", ""
@@ -134,7 +134,7 @@ jobs:
 
       - name: Get tag message
         id: get_changelog
-        shell: pwsh
+        shell: powershell
         run: |
           $version = "${{ steps.get_version.outputs.VERSION }}"
           $tagMessage = git tag -l --format='%(contents)' $version
@@ -146,7 +146,7 @@ jobs:
           Write-Host $tagMessage
 
       - name: Create Gitea Release
-        shell: pwsh
+        shell: powershell
         run: |
           $version = "${{ steps.get_version.outputs.VERSION }}"
           $prerelease = "${{ steps.get_version.outputs.PRERELEASE }}" -eq "true"
