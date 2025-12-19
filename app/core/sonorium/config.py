@@ -186,13 +186,16 @@ class AppConfig:
     output_gain: float = 6.0  # Output gain multiplier for network streams (0.0 - 10.0)
     max_channels: int = 4     # Maximum number of concurrent streaming channels
 
+    # Extra settings from launcher or other sources (preserved on save)
+    _extra_settings: dict = field(default_factory=dict, repr=False)
+
     def __post_init__(self):
         if not self.audio_path:
             self.audio_path = str(get_default_audio_dir())
 
     @classmethod
     def load(cls, path: Path | None = None) -> 'AppConfig':
-        """Load config from file."""
+        """Load config from file, preserving unknown keys for launcher settings."""
         if path is None:
             path = get_config_dir() / 'config.json'
 
@@ -201,7 +204,20 @@ class AppConfig:
                 with open(path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                 logger.info(f'Loaded config from {path}')
-                config = cls(**data)
+
+                # Separate known fields from extra settings (launcher settings, etc.)
+                known_fields = {f.name for f in cls.__dataclass_fields__.values() if not f.name.startswith('_')}
+                config_data = {}
+                extra_data = {}
+
+                for key, value in data.items():
+                    if key in known_fields:
+                        config_data[key] = value
+                    else:
+                        extra_data[key] = value
+
+                config = cls(**config_data)
+                config._extra_settings = extra_data
 
                 # Migrate old Music\Sonorium path to new themes folder next to EXE
                 if config.audio_path and 'Music' in config.audio_path and 'Sonorium' in config.audio_path:
@@ -220,14 +236,22 @@ class AppConfig:
         return config
 
     def save(self, path: Path | None = None):
-        """Save config to file."""
+        """Save config to file, preserving launcher settings."""
         if path is None:
             path = get_config_dir() / 'config.json'
 
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
+
+            # Get our fields as dict, excluding private fields
+            data = {k: v for k, v in asdict(self).items() if not k.startswith('_')}
+
+            # Merge in extra settings (launcher settings like include_prereleases)
+            if self._extra_settings:
+                data.update(self._extra_settings)
+
             with open(path, 'w', encoding='utf-8') as f:
-                json.dump(asdict(self), f, indent=2)
+                json.dump(data, f, indent=2)
             logger.info(f'Saved config to {path}')
         except Exception as e:
             logger.error(f'Failed to save config: {e}')
