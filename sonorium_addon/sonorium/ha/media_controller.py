@@ -63,6 +63,8 @@ class HAMediaController:
             async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
                 response = await client.post(url, headers=self.headers, json=data)
                 logger.debug(f"    Response: {response.status_code}")
+                if response.status_code not in (200, 201):
+                    logger.error(f"    HA API error {response.status_code}: {response.text[:500]}")
                 return response.status_code in (200, 201)
         except httpx.TimeoutException:
             # Timeout is OK - request was sent, speaker might just be slow
@@ -76,19 +78,19 @@ class HAMediaController:
     
     @logger.instrument("Playing media on {entity_id}...")
     async def play_media(
-        self, 
-        entity_id: str, 
+        self,
+        entity_id: str,
         media_url: str,
         media_type: str = "music"
     ) -> bool:
         """
         Play media URL on a speaker.
-        
+
         Args:
             entity_id: Media player entity ID
             media_url: URL to stream
             media_type: Media content type (default: "music")
-        
+
         Returns:
             True if request was sent successfully
         """
@@ -97,6 +99,13 @@ class HAMediaController:
             "media_content_id": media_url,
             "media_content_type": media_type,
         }
+
+        # For Sonos speakers, add enqueue parameter for live streams
+        # This tells Sonos to treat it as a radio/live stream
+        if "sonos" in entity_id.lower():
+            data["enqueue"] = "play"
+            logger.debug(f"  Sonos detected, adding enqueue=play for live stream")
+
         success = await self._post_service("media_player", "play_media", data)
         if success:
             logger.info(f"  Started playback on {entity_id}")
