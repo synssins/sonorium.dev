@@ -151,34 +151,9 @@ async def _get_sonos_ips_from_ha(media_controller) -> dict[str, str]:
                     sonos_ips[title] = host
                     logger.info(f"  SoCo: Found Sonos '{title}' at {host} from config entry")
 
-            # If no IPs from config entries, try entity states
+            # If no IPs from config entries, we'll try entity state later (via REST API)
             if not sonos_ips:
-                logger.info("  SoCo: No IPs in config entries, trying entity states...")
-
-                # Query all states
-                await ws.send(json.dumps({
-                    "id": 2,
-                    "type": "get_states"
-                }))
-
-                msg = json.loads(await ws.recv())
-                if msg.get('success'):
-                    states = msg.get('result', [])
-                    for state in states:
-                        entity_id = state.get('entity_id', '')
-                        if not entity_id.startswith('media_player.') or 'sonos' not in entity_id.lower():
-                            continue
-
-                        attrs = state.get('attributes', {})
-                        # Try to find IP in attributes
-                        for attr_name in ['ip_address', 'soco_ip', 'host', 'address']:
-                            if attr_name in attrs:
-                                name = attrs.get('friendly_name', entity_id).lower()
-                                if name.startswith('sonos '):
-                                    name = name[6:]
-                                sonos_ips[name] = attrs[attr_name]
-                                logger.info(f"  SoCo: Found Sonos '{name}' at {attrs[attr_name]} from entity state")
-                                break
+                logger.info("  SoCo: No IPs in config entries, will check entity state via REST API")
 
             return sonos_ips
 
@@ -337,8 +312,9 @@ class SonosPlayer:
 
         Resolution order:
         1. Cache (previous lookups)
-        2. HA device registry (automatic)
-        3. Manual IP mappings (fallback)
+        2. Entity state attributes (ip_address, soco_ip, etc.)
+        3. HA config entries (automatic)
+        4. Manual IP mappings (fallback)
 
         Returns:
             IP address string, or None if not found
@@ -347,20 +323,31 @@ class SonosPlayer:
         if entity_id in self._ip_cache:
             return self._ip_cache[entity_id]
 
-        # Load HA device IPs if not done yet
-        await self._load_ha_device_ips()
-
-        # Get entity state to find friendly name
+        # Get entity state - check for IP in attributes
         state = await self.media_controller.get_state(entity_id)
         friendly_name = None
+        attributes = {}
+
         if state:
             attributes = state.get('attributes', {})
             friendly_name = attributes.get('friendly_name')
-            logger.debug(f"  SoCo: Entity {entity_id} friendly_name: {friendly_name}")
+
+            # Log all attributes so we can see what's available
+            logger.info(f"  SoCo: Entity {entity_id} attributes: {list(attributes.keys())}")
+
+            # Try to find IP directly in attributes
+            ip = _get_sonos_ip_from_attributes(attributes)
+            if ip:
+                self._ip_cache[entity_id] = ip
+                logger.info(f"  SoCo: Found IP {ip} in entity attributes")
+                return ip
 
         # Extract room name from entity
         room_name = _extract_room_from_entity(entity_id, friendly_name)
         logger.info(f"  SoCo: Looking for IP for '{room_name}' ({entity_id})")
+
+        # Load HA config entry IPs if not done yet
+        await self._load_ha_device_ips()
 
         # Try HA device registry first
         if self._ha_device_ips:
