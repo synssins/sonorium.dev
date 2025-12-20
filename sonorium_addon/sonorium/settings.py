@@ -40,20 +40,38 @@ class Settings(sets.Base):
     token: str = Field(alias=ha.constants.SUPERVISOR_TOKEN_KEY)
 
 
-    stream_url: str
+    stream_url: str = "auto"
+
+    # Default streaming port (matches config.yaml ports mapping)
+    stream_port: int = 8008
 
     @model_validator(mode='after')
     def resolve_stream_url(self):
         """
-        Replace 'homeassistant.local' with actual IP address.
+        Auto-detect stream URL using the local IP address.
 
-        Network speakers (Sonos, etc.) can't resolve homeassistant.local,
-        so we need to use the actual IP address for the stream URL.
+        Network speakers (Sonos, etc.) can't resolve hostnames like
+        'homeassistant.local', so we need to use the actual IP address.
+
+        Handles:
+        - "auto" or empty: Auto-detect IP and build URL
+        - "homeassistant.local" in URL: Replace with detected IP
+        - Any other URL: Use as-is (allows manual override)
         """
-        if 'homeassistant.local' in self.stream_url:
-            local_ip = get_local_ip()
+        local_ip = get_local_ip()
+
+        # Handle "auto" or empty - build URL from detected IP
+        if not self.stream_url or self.stream_url.lower() == "auto":
+            if local_ip:
+                self.stream_url = f"http://{local_ip}:{self.stream_port}"
+            else:
+                # Fallback if IP detection fails
+                self.stream_url = f"http://127.0.0.1:{self.stream_port}"
+        # Handle homeassistant.local - replace with detected IP
+        elif 'homeassistant.local' in self.stream_url:
             if local_ip:
                 self.stream_url = self.stream_url.replace('homeassistant.local', local_ip)
+
         return self
 
     name: str = Sonorium.__name__

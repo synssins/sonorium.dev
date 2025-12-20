@@ -1,5 +1,5 @@
 name: Sonorium
-version: "1.2.7"
+version: "1.2.8"
 slug: sonorium
 description: "Multi-zone ambient soundscape mixer for Home Assistant"
 url: https://github.com/synssins/sonorium
@@ -32,12 +32,12 @@ ports_description:
   8080/tcp: "Sonorium Web UI and streaming API (direct access)"
 
 options:
-  sonorium__stream_url: "http://homeassistant.local:8008"
+  sonorium__stream_url: "auto"
   sonorium__path_audio: "/media/sonorium"
   sonorium__max_channels: 6
 
 schema:
-  sonorium__stream_url: str
+  sonorium__stream_url: str?
   sonorium__path_audio: str
   sonorium__max_channels: int(1,10)
 
