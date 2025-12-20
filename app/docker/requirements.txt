@@ -22,3 +22,6 @@ aiofiles>=23.0.0
 async-upnp-client>=0.38.0
 zeroconf>=0.131.0
 pyatv>=0.14.0
+
+# Sonos support
+soco>=0.30.0

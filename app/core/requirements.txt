@@ -27,3 +27,6 @@ zeroconf>=0.131.0
 
 # AirPlay support
 pyatv>=0.14.0
+
+# Sonos support
+soco>=0.30.0

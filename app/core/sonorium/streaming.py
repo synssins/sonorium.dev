@@ -293,9 +293,11 @@ class NetworkStreamingManager:
 
                 # Play the URI directly
                 # Sonos can play HTTP streams with play_uri
+                # force_radio=True is required for live streams (Sonos 6.4.2+)
                 device.play_uri(
                     uri=session.stream_url,
-                    title='Sonorium'
+                    title='Sonorium',
+                    force_radio=True
                 )
 
                 return device
