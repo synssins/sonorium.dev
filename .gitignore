@@ -151,6 +151,7 @@ CLAUDE.md
 TODO.md
 Completed.md
 Summary.md
+.claude/
 
 # Sonorium app user data folders (created at runtime)
 app/backup/

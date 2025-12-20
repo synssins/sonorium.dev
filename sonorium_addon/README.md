@@ -8,6 +8,23 @@
 
 Sonorium lets you create immersive ambient audio environments throughout your home. Stream richly layered soundscapes—from distant thunder and rainfall to forest ambiance and ocean waves—to any combination of media players in your Home Assistant setup.
 
+## What's New in v1.2.17
+
+### Direct Sonos Support with SoCo
+Sonorium now streams directly to Sonos speakers using the SoCo library for native device communication. No need for additional proxies or configuration—Sonorium automatically discovers your Sonos speakers and streams to them reliably.
+
+**Technical Note:** Sonos playback uses SoCo's `force_radio=True` mode, which enables uninterrupted HTTP audio streaming. The addon automatically extracts Sonos speaker IP addresses from the Home Assistant device registry.
+
+### Sparse Playback Timing Fix
+Fixed timing issues with sparse playback mode where occasional sounds (thunder claps, bird calls) would sometimes play immediately at theme start instead of waiting for their natural interval. Sparse tracks now correctly honor their presence-based timing from the beginning.
+
+### Track Levels & Exclusive Groups
+Fixed an issue where tracks could start at incorrect volume levels when switching themes. Exclusive track groups (sounds that shouldn't play simultaneously, like different thunder patterns) now properly coordinate their playback.
+
+### Audio Encoding Improvements
+- Fixed PyAV frame format to use `s16p` (planar) for proper stereo output
+- Improved compatibility with newer PyAV API versions
+
 ## What's New in v1.2.4
 
 ### New Bundled Theme

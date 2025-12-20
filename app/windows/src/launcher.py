@@ -39,7 +39,7 @@ from PyQt6.QtGui import QIcon, QPixmap, QAction, QDesktopServices, QFont, QTextC
 
 # Constants
 APP_NAME = "Sonorium"
-APP_VERSION = "0.2.37-alpha"
+APP_VERSION = "1.0.0"
 DEFAULT_PORT = 8008
 
 # Global logger instance
@@ -106,12 +106,12 @@ def get_logger() -> logging.Logger:
 
 
 WIKI_URL = "https://github.com/synssins/sonorium/wiki"
-REPO_URL = "http://192.168.1.222:3000/Synthesis/sonorium"
+REPO_URL = "https://github.com/synssins/sonorium"
 
-# Gitea Releases API URL (includes prereleases)
-# Uses /releases to get all releases including alpha/beta
-RELEASES_API_URL = "http://192.168.1.222:3000/api/v1/repos/Synthesis/sonorium/releases"
-CORE_ZIP_FALLBACK = "http://192.168.1.222:3000/Synthesis/sonorium/releases/download/v0.1.0-alpha/core.zip"
+# GitHub Releases API URL (includes prereleases)
+# Uses /releases to get all releases including stable/alpha/beta
+RELEASES_API_URL = "https://api.github.com/repos/synssins/sonorium/releases"
+CORE_ZIP_FALLBACK = "https://github.com/synssins/sonorium/releases/download/v1.0.0/core.zip"
 
 # Required folder structure (relative to app root)
 REQUIRED_FOLDERS = ['core', 'config', 'logs', 'themes', 'plugins']

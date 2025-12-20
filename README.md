@@ -52,6 +52,29 @@ Configure speakers, volume defaults, and other preferences.
 
 ![Settings](screenshots/Settings.png)
 
+## What's New in v1.0.0
+
+### Sonos Speaker Support
+Full Sonos speaker integration using the SoCo library for direct device communication. No need for additional proxies or bridges—Sonorium discovers and streams to your Sonos speakers natively.
+
+**Technical Note:** Sonos playback uses the SoCo library with `force_radio=True` mode, which enables reliable HTTP audio streaming to Sonos devices without interruption.
+
+### Arylic/Linkplay HTTP API
+Reliable streaming to Arylic and Linkplay-based speakers via their native HTTP API. This provides more stable playback than AirPlay for these devices.
+
+### Sparse Playback Timing Fix
+Fixed timing issues with sparse playback mode where occasional sounds (thunder, bird calls) would sometimes play immediately at theme start instead of waiting for their natural interval. Sparse tracks now correctly honor their presence-based timing from the beginning.
+
+### Track Levels & Exclusive Groups
+Fixed an issue where tracks could start at incorrect volume levels when switching themes. Exclusive track groups (where only one sound plays at a time) now properly coordinate their playback.
+
+### Configuration Preservation
+Windows app now correctly preserves launcher settings when the core saves configuration changes. Your port, theme folder, and other preferences persist reliably.
+
+### Audio Encoding Improvements
+- Fixed PyAV frame format to use `s16p` (planar) for proper stereo output
+- Improved compatibility with newer PyAV API versions
+
 ## Features
 
 ### Multi-Zone Audio
@@ -141,7 +164,9 @@ Single-file themes loop seamlessly using crossfade blending—no jarring restart
 ### Standalone App
 - Local audio output (default speakers)
 - DLNA/UPnP network speakers
-- *Coming soon: AirPlay, Sonos, Chromecast*
+- Sonos speakers (via SoCo library)
+- Arylic/Linkplay speakers (via HTTP API)
+- *Coming soon: AirPlay (other devices), Chromecast*
 
 ### Home Assistant Addon
 - Any media_player entity in Home Assistant
