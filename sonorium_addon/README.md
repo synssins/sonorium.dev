@@ -21,6 +21,9 @@ Fixed timing issues with sparse playback mode where occasional sounds (thunder c
 ### Track Levels & Exclusive Groups
 Fixed an issue where tracks could start at incorrect volume levels when switching themes. Exclusive track groups (sounds that shouldn't play simultaneously, like different thunder patterns) now properly coordinate their playback.
 
+### Automatic Stream URL Detection
+The addon now automatically detects your Home Assistant's IP address for the stream URL. No more manual configuration required—speakers connect reliably without needing to change the default `auto` setting.
+
 ### Audio Encoding Improvements
 - Fixed PyAV frame format to use `s16p` (planar) for proper stereo output
 - Improved compatibility with newer PyAV API versions
