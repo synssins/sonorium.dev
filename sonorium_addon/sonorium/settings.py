@@ -1,12 +1,34 @@
 import asyncio
+import socket
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from sonorium.client import ClientSonorium
 from sonorium.device import Sonorium
 from sonorium.paths import paths
 from fmtr import tools
 from fmtr.tools import sets, ha
+
+
+def get_local_ip() -> str:
+    """
+    Get the local network IP address of this machine.
+
+    This is the IP address that network speakers will use to connect
+    to the Sonorium stream endpoint.
+    """
+    try:
+        # Create a UDP socket and connect to an external address
+        # This doesn't actually send data, but determines which interface would be used
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.settimeout(0.1)
+        # Connect to Google's DNS - doesn't actually send anything
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return None
 
 
 class Settings(sets.Base):
@@ -19,6 +41,21 @@ class Settings(sets.Base):
 
 
     stream_url: str
+
+    @model_validator(mode='after')
+    def resolve_stream_url(self):
+        """
+        Replace 'homeassistant.local' with actual IP address.
+
+        Network speakers (Sonos, etc.) can't resolve homeassistant.local,
+        so we need to use the actual IP address for the stream URL.
+        """
+        if 'homeassistant.local' in self.stream_url:
+            local_ip = get_local_ip()
+            if local_ip:
+                self.stream_url = self.stream_url.replace('homeassistant.local', local_ip)
+        return self
+
     name: str = Sonorium.__name__
     mqtt: tools.mqtt.Client.Args | None = None
 
@@ -38,6 +75,7 @@ class Settings(sets.Base):
 
         logger.info(f'Launching {paths.name_ns} {__version__=} {tools.get_version()=} from entrypoint.')
         logger.debug(f'{paths.settings.exists()=} {str(paths.settings)=}')
+        logger.info(f'Stream URL: {self.stream_url}')
 
         logger.info(f'Launching...')
 
