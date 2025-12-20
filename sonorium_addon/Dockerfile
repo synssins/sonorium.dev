@@ -24,7 +24,8 @@ RUN pip3 install --no-cache-dir --break-system-packages \
     httpx \
     homeassistant_api \
     websockets \
-    python-multipart
+    python-multipart \
+    soco
 
 # Install fmtr.tools and haco from PyPI
 RUN pip3 install --no-cache-dir --break-system-packages \
@@ -57,6 +58,6 @@ RUN chmod a+x /run.sh
 # Read version from the single source of truth (sonorium/version file)
 # Note: LABEL is set at build time, reading from the version file
 ARG ADDON_VERSION
-LABEL io.hass.version="${ADDON_VERSION:-1.2.11}"
+LABEL io.hass.version="${ADDON_VERSION:-1.2.12}"
 
 CMD [ "/run.sh" ]

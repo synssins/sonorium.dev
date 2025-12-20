@@ -5,15 +5,20 @@ Handles service calls to Home Assistant for controlling media players:
 - Play media (stream URL)
 - Pause/Stop playback
 - Volume control
+
+For Sonos speakers, uses SoCo library directly for more reliable streaming.
 """
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 import asyncio
 
 import httpx
 from sonorium.obs import logger
+
+if TYPE_CHECKING:
+    from sonorium.ha.sonos_player import SonosPlayer
 
 
 # Short timeout - we just want to fire the request, not wait for completion
@@ -23,17 +28,19 @@ REQUEST_TIMEOUT = 5.0
 class HAMediaController:
     """
     Controls Home Assistant media players via REST API.
-    
+
     Used to send stream URLs to speakers and control playback.
+    For Sonos speakers, uses SoCo library for more reliable streaming.
     """
-    
-    def __init__(self, api_url: str, token: str):
+
+    def __init__(self, api_url: str, token: str, use_soco_for_sonos: bool = True):
         """
         Initialize with HA API connection details.
-        
+
         Args:
             api_url: Base URL for HA API (e.g., "http://supervisor/core/api")
             token: Long-lived access token or supervisor token
+            use_soco_for_sonos: If True, use SoCo library for Sonos speakers
         """
         self.api_url = api_url.rstrip("/")
         self.token = token
@@ -41,6 +48,20 @@ class HAMediaController:
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
         }
+
+        # Initialize SonosPlayer for direct Sonos control
+        self._sonos_player: Optional[SonosPlayer] = None
+        self._use_soco_for_sonos = use_soco_for_sonos
+
+        if use_soco_for_sonos:
+            try:
+                from sonorium.ha.sonos_player import SonosPlayer
+                self._sonos_player = SonosPlayer(self)
+                logger.info(f"HAMediaController initialized with SoCo support for Sonos")
+            except ImportError:
+                logger.warning("SoCo not available - using HA API for Sonos speakers")
+                self._use_soco_for_sonos = False
+
         logger.info(f"HAMediaController initialized with API URL: {self.api_url}")
     
     async def _post_service(self, domain: str, service: str, data: dict) -> bool:
@@ -98,6 +119,9 @@ class HAMediaController:
             "entity_id": entity_id,
             "media_content_id": media_url,
             "media_content_type": media_type,
+            "extra": {
+                "enqueue": "replace",  # Replace current queue/stream
+            }
         }
 
         # Log the full request for debugging
@@ -117,34 +141,58 @@ class HAMediaController:
     ) -> dict[str, bool]:
         """
         Play media URL on multiple speakers simultaneously.
-        
+
+        For Sonos speakers, uses SoCo library for more reliable streaming.
+        For other speakers, uses HA's media_player.play_media service.
+
         Args:
             entity_ids: List of media player entity IDs
             media_url: URL to stream
             media_type: Media content type
-        
+
         Returns:
             Dict mapping entity_id to success status
         """
         if not entity_ids:
             return {}
-        
-        # Run all play calls concurrently
-        tasks = [
-            self.play_media(entity_id, media_url, media_type)
-            for entity_id in entity_ids
-        ]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        
-        # Build result dict
+
         status = {}
-        for entity_id, result in zip(entity_ids, results):
-            if isinstance(result, Exception):
-                logger.error(f"  Exception for {entity_id}: {result}")
-                status[entity_id] = False
-            else:
-                status[entity_id] = result
-        
+
+        # Separate Sonos from non-Sonos speakers
+        sonos_ids = []
+        other_ids = []
+
+        if self._sonos_player and self._use_soco_for_sonos:
+            for eid in entity_ids:
+                if self._sonos_player.is_sonos(eid):
+                    sonos_ids.append(eid)
+                else:
+                    other_ids.append(eid)
+        else:
+            other_ids = entity_ids
+
+        # Play on Sonos speakers using SoCo (if any)
+        if sonos_ids:
+            logger.info(f"  Using SoCo for {len(sonos_ids)} Sonos speaker(s)")
+            sonos_results = await self._sonos_player.play_media_multi(sonos_ids, media_url)
+            status.update(sonos_results)
+
+        # Play on other speakers using HA API
+        if other_ids:
+            logger.info(f"  Using HA API for {len(other_ids)} speaker(s)")
+            tasks = [
+                self.play_media(entity_id, media_url, media_type)
+                for entity_id in other_ids
+            ]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            for entity_id, result in zip(other_ids, results):
+                if isinstance(result, Exception):
+                    logger.error(f"  Exception for {entity_id}: {result}")
+                    status[entity_id] = False
+                else:
+                    status[entity_id] = result
+
         success_count = sum(1 for v in status.values() if v)
         logger.info(f"  {success_count}/{len(entity_ids)} speakers started")
         return status
