@@ -44,7 +44,9 @@ COPY logo.png icon.png /app/
 COPY themes/ /app/themes/
 
 # Set PYTHONPATH instead of pip install -e (avoids caching issues)
-ENV PYTHONPATH="/app:${PYTHONPATH}"
+# PYTHONUNBUFFERED ensures logs appear immediately in Docker
+ENV PYTHONPATH="/app:${PYTHONPATH}" \
+    PYTHONUNBUFFERED=1
 
 # Verify installation and get version
 RUN python3 -c "from sonorium.version import __version__; print(f'Sonorium {__version__} imported successfully')"

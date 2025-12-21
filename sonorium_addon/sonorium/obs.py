@@ -69,6 +69,8 @@ def get_logger(name: str, version: str = "") -> InstrumentedLogger:
     logger.__class__ = InstrumentedLogger
 
     if not logger.handlers:
+        # Force unbuffered stdout for Docker/container environments
+        sys.stdout.reconfigure(line_buffering=True) if hasattr(sys.stdout, 'reconfigure') else None
         handler = logging.StreamHandler(sys.stdout)
         handler.setFormatter(logging.Formatter('%(asctime)s.%(msecs)03d %(message)s', datefmt='%H:%M:%S'))
         logger.addHandler(handler)
