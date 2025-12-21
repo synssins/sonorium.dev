@@ -73,6 +73,10 @@ class SessionMQTTEntities:
         # Theme name/ID mappings (populated in _publish_theme_select)
         self._theme_name_to_id: dict[str, str] = {}
         self._theme_id_to_name: dict[str, str] = {}
+
+        # Preset name/ID mappings (populated in _publish_preset_select)
+        self._preset_name_to_id: dict[str, str] = {}
+        self._preset_id_to_name: dict[str, str] = {}
     
     def _get_unique_id(self, suffix: str) -> str:
         """Generate unique ID for an entity."""
@@ -137,10 +141,11 @@ class SessionMQTTEntities:
             retain=True,
         )
 
-        # Preset select state
+        # Preset select state (use name, not ID)
+        preset_name = self._preset_id_to_name.get(self.session.preset_id, "") if self.session.preset_id else ""
         await self.mqtt_publish(
             f"{self.state_topic_base}/preset/state",
-            self.session.preset_id or "",
+            preset_name,
             retain=True,
         )
 
@@ -223,11 +228,19 @@ class SessionMQTTEntities:
         """Publish preset selector discovery."""
         unique_id = self._get_unique_id("preset")
 
-        # Get presets for the current theme
+        # Get presets for the current theme - use NAMES not IDs
         options = [""]  # Empty option for "no preset"
+        self._preset_name_to_id = {}
+        self._preset_id_to_name = {}
         if self.session.theme_id and self.get_presets_for_theme:
             presets = self.get_presets_for_theme(self.session.theme_id)
-            options.extend([p.get("id", "") for p in presets if p.get("id")])
+            for p in presets:
+                preset_id = p.get("id")
+                preset_name = p.get("name", preset_id)  # Fall back to ID if no name
+                if preset_id:
+                    options.append(preset_name)
+                    self._preset_name_to_id[preset_name] = preset_id
+                    self._preset_id_to_name[preset_id] = preset_name
 
         config = {
             "name": f"{self.session.name} Preset",
@@ -354,6 +367,10 @@ class SonoriumMQTTManager:
         # Theme name/ID mappings for global controls (populated in _publish_global_entities)
         self._theme_name_to_id: dict[str, str] = {}
         self._theme_id_to_name: dict[str, str] = {}
+
+        # Preset name/ID mappings for global controls (populated in _update_global_preset_options)
+        self._preset_name_to_id: dict[str, str] = {}
+        self._preset_id_to_name: dict[str, str] = {}
 
         # Device info for grouping entities
         self.device_info = {
@@ -844,10 +861,11 @@ class SonoriumMQTTManager:
                 retain=True,
             )
             
-            # Preset state
+            # Preset state (use name, not ID)
+            preset_name = self._preset_id_to_name.get(session.preset_id, "") if session.preset_id else ""
             await self._mqtt_publish(
                 f"{self.prefix}/preset/state",
-                session.preset_id or "",
+                preset_name,
                 retain=True,
             )
             
@@ -897,10 +915,18 @@ class SonoriumMQTTManager:
     async def _update_global_preset_options(self, theme_id: str | None):
         """Update the global preset select options based on theme."""
         options = [""]  # Empty option
-        
+        self._preset_name_to_id = {}
+        self._preset_id_to_name = {}
+
         if theme_id:
             presets = self.get_presets_for_theme(theme_id)
-            options.extend([p.get("id", "") for p in presets if p.get("id")])
+            for p in presets:
+                preset_id = p.get("id")
+                preset_name = p.get("name", preset_id)  # Fall back to ID if no name
+                if preset_id:
+                    options.append(preset_name)
+                    self._preset_name_to_id[preset_name] = preset_id
+                    self._preset_id_to_name[preset_id] = preset_name
         
         # Re-publish config with updated options
         config = {
@@ -1065,8 +1091,14 @@ class SonoriumMQTTManager:
             if not self._selected_session_id:
                 logger.warning("No session selected for global preset control")
                 return
-            
-            self.session_manager.update(self._selected_session_id, preset_id=payload or None)
+
+            # Convert preset name to ID (payload is the preset name from the dropdown)
+            preset_id = self._preset_name_to_id.get(payload) if payload else None
+            if payload and not preset_id:
+                logger.warning(f"Unknown preset name: {payload}")
+                return
+
+            self.session_manager.update(self._selected_session_id, preset_id=preset_id)
             session = self.state.sessions.get(self._selected_session_id)
             if session:
                 await self.update_session_state(session)
@@ -1128,7 +1160,13 @@ class SonoriumMQTTManager:
                 return
 
             elif topic == f"{self.prefix}/{slug}/preset/set":
-                self.session_manager.update(session_id, preset_id=payload or None)
+                # Convert preset name to ID (payload is the preset name from the dropdown)
+                preset_id = entities._preset_name_to_id.get(payload) if payload else None
+                if payload and not preset_id:
+                    logger.warning(f"Unknown preset name for session {session_id}: {payload}")
+                    return
+
+                self.session_manager.update(session_id, preset_id=preset_id)
                 session = self.state.sessions.get(session_id)
                 if session:
                     await self.update_session_state(session)
