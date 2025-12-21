@@ -69,6 +69,10 @@ class SessionMQTTEntities:
         self.slug = session.get_entity_slug()
         self.base_topic = f"homeassistant"
         self.state_topic_base = f"{entity_prefix}/{self.slug}"
+
+        # Theme name/ID mappings (populated in _publish_theme_select)
+        self._theme_name_to_id: dict[str, str] = {}
+        self._theme_id_to_name: dict[str, str] = {}
     
     def _get_unique_id(self, suffix: str) -> str:
         """Generate unique ID for an entity."""
@@ -125,10 +129,11 @@ class SessionMQTTEntities:
             retain=True,
         )
 
-        # Theme select state
+        # Theme select state (use name, not ID)
+        theme_name = self._theme_id_to_name.get(self.session.theme_id, "") if self.session.theme_id else ""
         await self.mqtt_publish(
             f"{self.state_topic_base}/theme/state",
-            self.session.theme_id or "",
+            theme_name,
             retain=True,
         )
 
@@ -186,10 +191,20 @@ class SessionMQTTEntities:
     async def _publish_theme_select(self):
         """Publish theme selector discovery."""
         unique_id = self._get_unique_id("theme")
-        
-        # Build options list from themes
-        options = [""] + [t.get("id", "") for t in self.themes if t.get("id")]
-        
+
+        # Build options list from themes - use NAMES not IDs
+        # Also build mappings for converting between names and IDs
+        options = [""]
+        self._theme_name_to_id = {}
+        self._theme_id_to_name = {}
+        for t in self.themes:
+            theme_id = t.get("id")
+            theme_name = t.get("name")
+            if theme_id and theme_name:
+                options.append(theme_name)
+                self._theme_name_to_id[theme_name] = theme_id
+                self._theme_id_to_name[theme_id] = theme_name
+
         config = {
             "name": f"{self.session.name} Theme",
             "unique_id": unique_id,
@@ -200,7 +215,7 @@ class SessionMQTTEntities:
             "icon": "mdi:music-box-multiple",
             "device": self.device_info,
         }
-        
+
         topic = self._get_discovery_topic("select", "theme")
         await self.mqtt_publish(topic, json.dumps(config), retain=True)
 
@@ -335,6 +350,10 @@ class SonoriumMQTTManager:
         
         # Session name to ID mapping for global controls
         self._session_name_to_id: dict[str, str] = {}
+
+        # Theme name/ID mappings for global controls (populated in _publish_global_entities)
+        self._theme_name_to_id: dict[str, str] = {}
+        self._theme_id_to_name: dict[str, str] = {}
 
         # Device info for grouping entities
         self.device_info = {
@@ -599,11 +618,18 @@ class SonoriumMQTTManager:
 
         # === GLOBAL THEME SELECT ===
         # NOTE: Using "global_theme" to avoid conflict with stuck old "theme" entity
+        # Use theme NAMES for options, map to IDs internally
         theme_options = [""]  # Empty = no theme
+        self._theme_name_to_id = {}  # Map theme names to IDs
+        self._theme_id_to_name = {}  # Map theme IDs to names
         for theme in self._themes:
-            if "id" in theme:
-                theme_options.append(theme["id"])
-        logger.info(f"    Theme select options: {len(theme_options)} themes")
+            theme_id = theme.get("id")
+            theme_name = theme.get("name")
+            if theme_id and theme_name:
+                theme_options.append(theme_name)
+                self._theme_name_to_id[theme_name] = theme_id
+                self._theme_id_to_name[theme_id] = theme_name
+        logger.info(f"    Theme select options: {len(theme_options) - 1} themes")
 
         config = {
             "name": "Sonorium Theme",
@@ -810,10 +836,11 @@ class SonoriumMQTTManager:
                 retain=True,
             )
             
-            # Theme state
+            # Theme state (use name, not ID)
+            theme_name = self._theme_id_to_name.get(session.theme_id, "") if session.theme_id else ""
             await self._mqtt_publish(
                 f"{self.prefix}/theme/state",
-                session.theme_id or "",
+                theme_name,
                 retain=True,
             )
             
@@ -1016,8 +1043,14 @@ class SonoriumMQTTManager:
             if not self._selected_session_id:
                 logger.warning("No session selected for global theme control")
                 return
-            
-            self.session_manager.update(self._selected_session_id, theme_id=payload or None)
+
+            # Convert theme name to ID (payload is the theme name from the dropdown)
+            theme_id = self._theme_name_to_id.get(payload) if payload else None
+            if payload and not theme_id:
+                logger.warning(f"Unknown theme name: {payload}")
+                return
+
+            self.session_manager.update(self._selected_session_id, theme_id=theme_id)
             session = self.state.sessions.get(self._selected_session_id)
             if session:
                 await self.update_session_state(session)
@@ -1077,7 +1110,13 @@ class SonoriumMQTTManager:
                 return
             
             elif topic == f"{self.prefix}/{slug}/theme/set":
-                self.session_manager.update(session_id, theme_id=payload or None)
+                # Convert theme name to ID (payload is the theme name from the dropdown)
+                theme_id = entities._theme_name_to_id.get(payload) if payload else None
+                if payload and not theme_id:
+                    logger.warning(f"Unknown theme name for session {session_id}: {payload}")
+                    return
+
+                self.session_manager.update(session_id, theme_id=theme_id)
                 session = self.state.sessions.get(session_id)
                 if session:
                     await self.update_session_state(session)
