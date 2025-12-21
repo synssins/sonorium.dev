@@ -290,7 +290,8 @@ class SonoriumMQTTManager:
     - Session entity creation/removal
     - Command handling (play, theme, volume, preset)
     - State synchronization
-    - Global entities (stop all, active count)
+    - Global control entities (session selector + controls for selected session)
+    - Global info entities (stop all, active count)
     """
 
     def __init__(
@@ -317,8 +318,11 @@ class SonoriumMQTTManager:
         self.prefix = entity_prefix
         self._theme_metadata_manager = theme_metadata_manager
 
-        # Track session entity managers
+        # Track session entity managers (per-session entities)
         self._session_entities: dict[str, SessionMQTTEntities] = {}
+
+        # Track selected session for global controls
+        self._selected_session_id: str | None = None
 
         # Device info for grouping entities
         self.device_info = {
@@ -414,6 +418,9 @@ class SonoriumMQTTManager:
         await entities.update_speakers_sensor(speaker_summary)
 
         self._session_entities[session.id] = entities
+        
+        # Update session selector options
+        await self._update_session_selector_options()
     
     async def remove_session_entities(self, session_id: str):
         """Remove MQTT entities for a deleted session."""
@@ -422,6 +429,19 @@ class SonoriumMQTTManager:
         
         entities = self._session_entities.pop(session_id)
         await entities.remove_discovery()
+        
+        # If removed session was selected, clear selection
+        if self._selected_session_id == session_id:
+            self._selected_session_id = None
+            await self._mqtt_publish(
+                f"{self.prefix}/session/state",
+                "",
+                retain=True,
+            )
+            await self._update_global_control_states()
+        
+        # Update session selector options
+        await self._update_session_selector_options()
     
     async def update_session_state(self, session: Session):
         """Update state for a session's entities."""
@@ -438,9 +458,146 @@ class SonoriumMQTTManager:
         await entities.update_speakers_sensor(speaker_summary)
     
     async def _publish_global_entities(self):
-        """Publish global Sonorium entities."""
+        """Publish global Sonorium entities including session selector and controls."""
         
-        # Stop All switch
+        # === SESSION SELECTOR ===
+        # Dropdown to select which session to control
+        session_options = [""]  # Empty = no selection
+        for session in self.state.sessions.values():
+            session_options.append(session.id)
+        
+        config = {
+            "name": "Sonorium Session",
+            "unique_id": f"{self.prefix}_session",
+            "object_id": f"{self.prefix}_session",
+            "state_topic": f"{self.prefix}/session/state",
+            "command_topic": f"{self.prefix}/session/set",
+            "options": session_options,
+            "icon": "mdi:playlist-music",
+            "device": self.device_info,
+        }
+        await self._mqtt_publish(
+            f"homeassistant/select/{self.prefix}_session/config",
+            json.dumps(config),
+            retain=True,
+        )
+        
+        # Publish initial session state
+        await self._mqtt_publish(
+            f"{self.prefix}/session/state",
+            self._selected_session_id or "",
+            retain=True,
+        )
+        
+        # === GLOBAL PLAY SWITCH ===
+        # Controls play state of selected session
+        config = {
+            "name": "Sonorium Play",
+            "unique_id": f"{self.prefix}_play",
+            "object_id": f"{self.prefix}_play",
+            "state_topic": f"{self.prefix}/play/state",
+            "command_topic": f"{self.prefix}/play/set",
+            "payload_on": "ON",
+            "payload_off": "OFF",
+            "icon": "mdi:play-pause",
+            "device": self.device_info,
+        }
+        await self._mqtt_publish(
+            f"homeassistant/switch/{self.prefix}_play/config",
+            json.dumps(config),
+            retain=True,
+        )
+        
+        # === GLOBAL THEME SELECT ===
+        theme_options = [""]  # Empty = no theme
+        for theme in self._themes:
+            if "id" in theme:
+                theme_options.append(theme["id"])
+        
+        config = {
+            "name": "Sonorium Theme",
+            "unique_id": f"{self.prefix}_theme",
+            "object_id": f"{self.prefix}_theme",
+            "state_topic": f"{self.prefix}/theme/state",
+            "command_topic": f"{self.prefix}/theme/set",
+            "options": theme_options,
+            "icon": "mdi:music-box-multiple",
+            "device": self.device_info,
+        }
+        await self._mqtt_publish(
+            f"homeassistant/select/{self.prefix}_theme/config",
+            json.dumps(config),
+            retain=True,
+        )
+        
+        # === GLOBAL PRESET SELECT ===
+        config = {
+            "name": "Sonorium Preset",
+            "unique_id": f"{self.prefix}_preset",
+            "object_id": f"{self.prefix}_preset",
+            "state_topic": f"{self.prefix}/preset/state",
+            "command_topic": f"{self.prefix}/preset/set",
+            "options": [""],  # Will be updated when session/theme changes
+            "icon": "mdi:tune-variant",
+            "device": self.device_info,
+        }
+        await self._mqtt_publish(
+            f"homeassistant/select/{self.prefix}_preset/config",
+            json.dumps(config),
+            retain=True,
+        )
+        
+        # === GLOBAL VOLUME NUMBER ===
+        config = {
+            "name": "Sonorium Volume",
+            "unique_id": f"{self.prefix}_volume",
+            "object_id": f"{self.prefix}_volume",
+            "state_topic": f"{self.prefix}/volume/state",
+            "command_topic": f"{self.prefix}/volume/set",
+            "min": 0,
+            "max": 100,
+            "step": 1,
+            "unit_of_measurement": "%",
+            "icon": "mdi:volume-high",
+            "device": self.device_info,
+        }
+        await self._mqtt_publish(
+            f"homeassistant/number/{self.prefix}_volume/config",
+            json.dumps(config),
+            retain=True,
+        )
+        
+        # === GLOBAL STATUS SENSOR ===
+        config = {
+            "name": "Sonorium Status",
+            "unique_id": f"{self.prefix}_status",
+            "object_id": f"{self.prefix}_status",
+            "state_topic": f"{self.prefix}/status/state",
+            "icon": "mdi:information-outline",
+            "device": self.device_info,
+        }
+        await self._mqtt_publish(
+            f"homeassistant/sensor/{self.prefix}_status/config",
+            json.dumps(config),
+            retain=True,
+        )
+        
+        # === GLOBAL SPEAKERS SENSOR ===
+        config = {
+            "name": "Sonorium Speakers",
+            "unique_id": f"{self.prefix}_speakers",
+            "object_id": f"{self.prefix}_speakers",
+            "state_topic": f"{self.prefix}/speakers/state",
+            "icon": "mdi:speaker-multiple",
+            "device": self.device_info,
+        }
+        await self._mqtt_publish(
+            f"homeassistant/sensor/{self.prefix}_speakers/config",
+            json.dumps(config),
+            retain=True,
+        )
+        
+        # === STOP ALL SWITCH ===
         config = {
             "name": "Sonorium Stop All",
             "unique_id": f"{self.prefix}_stop_all",
@@ -457,7 +614,7 @@ class SonoriumMQTTManager:
             retain=True,
         )
         
-        # Active Sessions sensor
+        # === ACTIVE SESSIONS SENSOR ===
         config = {
             "name": "Sonorium Active Sessions",
             "unique_id": f"{self.prefix}_active_sessions",
@@ -474,6 +631,9 @@ class SonoriumMQTTManager:
         
         # Update active sessions count
         await self._update_active_sessions_count()
+        
+        # Update global control states
+        await self._update_global_control_states()
     
     async def _update_active_sessions_count(self):
         """Update the active sessions counter."""
@@ -483,12 +643,136 @@ class SonoriumMQTTManager:
             str(count),
             retain=True,
         )
+
+    async def _update_global_control_states(self):
+        """Update global control entity states based on selected session."""
+        session = None
+        if self._selected_session_id:
+            session = self.state.sessions.get(self._selected_session_id)
+        
+        if session:
+            # Play state
+            await self._mqtt_publish(
+                f"{self.prefix}/play/state",
+                "ON" if session.is_playing else "OFF",
+                retain=True,
+            )
+            
+            # Theme state
+            await self._mqtt_publish(
+                f"{self.prefix}/theme/state",
+                session.theme_id or "",
+                retain=True,
+            )
+            
+            # Preset state
+            await self._mqtt_publish(
+                f"{self.prefix}/preset/state",
+                session.preset_id or "",
+                retain=True,
+            )
+            
+            # Volume state
+            await self._mqtt_publish(
+                f"{self.prefix}/volume/state",
+                str(session.volume),
+                retain=True,
+            )
+            
+            # Status
+            status = "Playing" if session.is_playing else "Stopped"
+            if session.theme_id:
+                # Try to get theme name
+                theme_name = session.theme_id
+                for theme in self._themes:
+                    if theme.get("id") == session.theme_id:
+                        theme_name = theme.get("name", session.theme_id)
+                        break
+                status = f"{status} - {theme_name}"
+            await self._mqtt_publish(
+                f"{self.prefix}/status/state",
+                status,
+                retain=True,
+            )
+            
+            # Speakers
+            speaker_summary = self.session_manager.get_speaker_summary(session)
+            await self._mqtt_publish(
+                f"{self.prefix}/speakers/state",
+                speaker_summary,
+                retain=True,
+            )
+            
+            # Update preset options for selected session's theme
+            await self._update_global_preset_options(session.theme_id)
+        else:
+            # No session selected - show empty/default states
+            await self._mqtt_publish(f"{self.prefix}/play/state", "OFF", retain=True)
+            await self._mqtt_publish(f"{self.prefix}/theme/state", "", retain=True)
+            await self._mqtt_publish(f"{self.prefix}/preset/state", "", retain=True)
+            await self._mqtt_publish(f"{self.prefix}/volume/state", "50", retain=True)
+            await self._mqtt_publish(f"{self.prefix}/status/state", "No session selected", retain=True)
+            await self._mqtt_publish(f"{self.prefix}/speakers/state", "None", retain=True)
+            await self._update_global_preset_options(None)
+    
+    async def _update_global_preset_options(self, theme_id: str | None):
+        """Update the global preset select options based on theme."""
+        options = [""]  # Empty option
+        
+        if theme_id:
+            presets = self.get_presets_for_theme(theme_id)
+            options.extend([p.get("id", "") for p in presets if p.get("id")])
+        
+        # Re-publish config with updated options
+        config = {
+            "name": "Sonorium Preset",
+            "unique_id": f"{self.prefix}_preset",
+            "object_id": f"{self.prefix}_preset",
+            "state_topic": f"{self.prefix}/preset/state",
+            "command_topic": f"{self.prefix}/preset/set",
+            "options": options,
+            "icon": "mdi:tune-variant",
+            "device": self.device_info,
+        }
+        await self._mqtt_publish(
+            f"homeassistant/select/{self.prefix}_preset/config",
+            json.dumps(config),
+            retain=True,
+        )
+    
+    async def _update_session_selector_options(self):
+        """Update the session selector options when sessions change."""
+        session_options = [""]  # Empty = no selection
+        for session in self.state.sessions.values():
+            session_options.append(session.id)
+        
+        config = {
+            "name": "Sonorium Session",
+            "unique_id": f"{self.prefix}_session",
+            "object_id": f"{self.prefix}_session",
+            "state_topic": f"{self.prefix}/session/state",
+            "command_topic": f"{self.prefix}/session/set",
+            "options": session_options,
+            "icon": "mdi:playlist-music",
+            "device": self.device_info,
+        }
+        await self._mqtt_publish(
+            f"homeassistant/select/{self.prefix}_session/config",
+            json.dumps(config),
+            retain=True,
+        )
     
     async def _subscribe_commands(self):
         """Subscribe to command topics."""
         # Build list of topics to subscribe
         topics = [
+            # Global control topics
             f"{self.prefix}/stop_all/set",
+            f"{self.prefix}/session/set",
+            f"{self.prefix}/play/set",
+            f"{self.prefix}/theme/set",
+            f"{self.prefix}/preset/set",
+            f"{self.prefix}/volume/set",
         ]
 
         # Add session-specific topics
@@ -520,13 +804,98 @@ class SonoriumMQTTManager:
         """
         logger.info(f"MQTT command: {topic} = {payload}")
         
+        # === GLOBAL COMMANDS ===
+        
         # Stop all
         if topic == f"{self.prefix}/stop_all/set" and payload == "ON":
             await self.session_manager.stop_all()
             await self._update_active_sessions_count()
+            await self._update_global_control_states()
             return
         
-        # Session commands
+        # Session selector
+        if topic == f"{self.prefix}/session/set":
+            # Update selected session
+            new_session_id = payload if payload else None
+            if new_session_id and new_session_id not in self.state.sessions:
+                logger.warning(f"Session not found: {new_session_id}")
+                return
+            
+            self._selected_session_id = new_session_id
+            await self._mqtt_publish(
+                f"{self.prefix}/session/state",
+                self._selected_session_id or "",
+                retain=True,
+            )
+            await self._update_global_control_states()
+            return
+        
+        # Global play control (operates on selected session)
+        if topic == f"{self.prefix}/play/set":
+            if not self._selected_session_id:
+                logger.warning("No session selected for global play control")
+                return
+            
+            if payload == "ON":
+                await self.session_manager.play(self._selected_session_id)
+            else:
+                await self.session_manager.pause(self._selected_session_id)
+            
+            session = self.state.sessions.get(self._selected_session_id)
+            if session:
+                await self.update_session_state(session)
+            await self._update_active_sessions_count()
+            await self._update_global_control_states()
+            return
+        
+        # Global theme control
+        if topic == f"{self.prefix}/theme/set":
+            if not self._selected_session_id:
+                logger.warning("No session selected for global theme control")
+                return
+            
+            self.session_manager.update(self._selected_session_id, theme_id=payload or None)
+            session = self.state.sessions.get(self._selected_session_id)
+            if session:
+                await self.update_session_state(session)
+                # Update preset options in session entity
+                if self._selected_session_id in self._session_entities:
+                    await self._session_entities[self._selected_session_id].update_preset_options()
+            await self._update_global_control_states()
+            return
+        
+        # Global preset control
+        if topic == f"{self.prefix}/preset/set":
+            if not self._selected_session_id:
+                logger.warning("No session selected for global preset control")
+                return
+            
+            self.session_manager.update(self._selected_session_id, preset_id=payload or None)
+            session = self.state.sessions.get(self._selected_session_id)
+            if session:
+                await self.update_session_state(session)
+            await self._update_global_control_states()
+            return
+        
+        # Global volume control
+        if topic == f"{self.prefix}/volume/set":
+            if not self._selected_session_id:
+                logger.warning("No session selected for global volume control")
+                return
+            
+            try:
+                volume = int(float(payload))
+                await self.session_manager.set_volume(self._selected_session_id, volume)
+                session = self.state.sessions.get(self._selected_session_id)
+                if session:
+                    await self.update_session_state(session)
+                await self._update_global_control_states()
+            except ValueError:
+                logger.warning(f"Invalid volume value: {payload}")
+            return
+        
+        # === SESSION-SPECIFIC COMMANDS ===
+        
         for session_id, entities in self._session_entities.items():
             slug = entities.slug
             
@@ -539,6 +908,9 @@ class SonoriumMQTTManager:
                 if session:
                     await self.update_session_state(session)
                 await self._update_active_sessions_count()
+                # Update global state if this is the selected session
+                if session_id == self._selected_session_id:
+                    await self._update_global_control_states()
                 return
             
             elif topic == f"{self.prefix}/{slug}/theme/set":
@@ -548,6 +920,9 @@ class SonoriumMQTTManager:
                     await self.update_session_state(session)
                     # Update preset options when theme changes
                     await entities.update_preset_options()
+                # Update global state if this is the selected session
+                if session_id == self._selected_session_id:
+                    await self._update_global_control_states()
                 return
 
             elif topic == f"{self.prefix}/{slug}/preset/set":
@@ -555,6 +930,9 @@ class SonoriumMQTTManager:
                 session = self.state.sessions.get(session_id)
                 if session:
                     await self.update_session_state(session)
+                # Update global state if this is the selected session
+                if session_id == self._selected_session_id:
+                    await self._update_global_control_states()
                 return
 
             elif topic == f"{self.prefix}/{slug}/volume/set":
@@ -564,6 +942,9 @@ class SonoriumMQTTManager:
                     session = self.state.sessions.get(session_id)
                     if session:
                         await self.update_session_state(session)
+                    # Update global state if this is the selected session
+                    if session_id == self._selected_session_id:
+                        await self._update_global_control_states()
                 except ValueError:
                     logger.warning(f"Invalid volume value: {payload}")
                 return
