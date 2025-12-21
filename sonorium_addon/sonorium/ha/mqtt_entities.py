@@ -81,11 +81,20 @@ class SessionMQTTEntities:
     
     async def publish_discovery(self):
         """Publish MQTT discovery configs for all session entities."""
+        import asyncio
+
+        # Small delays between entity publications to prevent overwhelming
+        # HA's MQTT discovery processor
         await self._publish_play_switch()
+        await asyncio.sleep(0.05)
         await self._publish_theme_select()
+        await asyncio.sleep(0.05)
         await self._publish_preset_select()
+        await asyncio.sleep(0.05)
         await self._publish_volume_number()
+        await asyncio.sleep(0.05)
         await self._publish_status_sensor()
+        await asyncio.sleep(0.05)
         await self._publish_speakers_sensor()
 
         logger.info(f"Published MQTT discovery for session '{self.session.name}'")
@@ -389,30 +398,15 @@ class SonoriumMQTTManager:
             logger.error(f"Failed to publish to {topic}: {e}")
     
     async def _clear_stale_entities(self):
-        """Clear any stale entity configurations by publishing empty payloads."""
-        logger.info("  Clearing stale MQTT entity configs...")
+        """
+        Clear any stale entity configurations.
 
-        # List of all global entity topics to clear
-        global_entities = [
-            ("select", "session"),
-            ("switch", "play"),
-            ("select", "theme"),
-            ("select", "preset"),
-            ("number", "volume"),
-            ("sensor", "status"),
-            ("sensor", "speakers"),
-            ("switch", "stop_all"),
-            ("sensor", "active_sessions"),
-        ]
-
-        for component, suffix in global_entities:
-            topic = f"homeassistant/{component}/{self.prefix}_{suffix}/config"
-            await self._mqtt_publish(topic, "", retain=True)
-
-        # Small delay to ensure clearing is processed
-        import asyncio
-        await asyncio.sleep(0.5)
-        logger.info("  Stale entities cleared")
+        NOTE: Disabled clearing of global entities as it was causing race conditions
+        where HA would process the empty payload after the actual config, resulting
+        in entities not being created. The entities will be overwritten with fresh
+        configs anyway.
+        """
+        logger.info("  Skipping stale entity clearing (disabled to fix race condition)")
 
     async def initialize(self):
         """Initialize MQTT entities for all sessions."""
@@ -496,6 +490,7 @@ class SonoriumMQTTManager:
     
     async def _publish_global_entities(self):
         """Publish global Sonorium entities including session selector and controls."""
+        import asyncio
         logger.info("  Publishing global entities...")
 
         # === SESSION SELECTOR ===
@@ -536,7 +531,10 @@ class SonoriumMQTTManager:
             selected_name,
             retain=True,
         )
-        
+
+        # Small delay to let HA process discovery message
+        await asyncio.sleep(0.1)
+
         # === GLOBAL PLAY SWITCH ===
         # Controls play state of selected session
         config = {
@@ -561,7 +559,8 @@ class SonoriumMQTTManager:
             "OFF",
             retain=True,
         )
-        
+        await asyncio.sleep(0.1)
+
         # === GLOBAL THEME SELECT ===
         theme_options = [""]  # Empty = no theme
         for theme in self._themes:
@@ -590,7 +589,8 @@ class SonoriumMQTTManager:
             "",
             retain=True,
         )
-        
+        await asyncio.sleep(0.1)
+
         # === GLOBAL PRESET SELECT ===
         config = {
             "name": "Sonorium Preset",
@@ -613,7 +613,8 @@ class SonoriumMQTTManager:
             "",
             retain=True,
         )
-        
+        await asyncio.sleep(0.1)
+
         # === GLOBAL VOLUME NUMBER ===
         config = {
             "name": "Sonorium Volume",
@@ -639,7 +640,8 @@ class SonoriumMQTTManager:
             "50",
             retain=True,
         )
-        
+        await asyncio.sleep(0.1)
+
         # === GLOBAL STATUS SENSOR ===
         config = {
             "name": "Sonorium Status",
@@ -660,7 +662,8 @@ class SonoriumMQTTManager:
             "No session selected",
             retain=True,
         )
-        
+        await asyncio.sleep(0.1)
+
         # === GLOBAL SPEAKERS SENSOR ===
         config = {
             "name": "Sonorium Speakers",
@@ -681,7 +684,8 @@ class SonoriumMQTTManager:
             "None",
             retain=True,
         )
-        
+        await asyncio.sleep(0.1)
+
         # === STOP ALL SWITCH ===
         # This is a momentary/command switch - set optimistic mode
         config = {
@@ -706,7 +710,8 @@ class SonoriumMQTTManager:
             "OFF",
             retain=True,
         )
-        
+        await asyncio.sleep(0.1)
+
         # === ACTIVE SESSIONS SENSOR ===
         config = {
             "name": "Sonorium Active Sessions",

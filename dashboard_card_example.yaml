@@ -1,46 +1,51 @@
 # Sonorium Dashboard Card for Home Assistant
-# Updated for v1.2.27+ (paho-mqtt based entities)
+# Updated for v1.2.34+ (paho-mqtt based entities)
 # Copy this entire card into your dashboard YAML editor
 #
-# ENTITIES REFERENCE:
-# Global (control selected session):
-#   - select.sonorium_session         (session selector)
-#   - switch.sonorium_play            (play/pause)
-#   - select.sonorium_theme           (theme)
-#   - select.sonorium_preset          (preset)
-#   - number.sonorium_volume          (volume)
-#   - sensor.sonorium_status          (status)
-#   - sensor.sonorium_speakers        (speakers)
-#   - switch.sonorium_stop_all        (stop all)
-#   - sensor.sonorium_active_sessions (active count)
+# IMPORTANT: Replace {slug} with your session's slug (session name in lowercase,
+# spaces replaced with underscores). Examples:
+#   - Session "Channel 1" → slug = "channel_1"
+#   - Session "Office_C97A" → slug = "office_c97a"
+#   - Session "Sonos_Office" → slug = "sonos_office"
 #
-# Per-session (replace {slug} with session name lowercase):
-#   - switch.sonorium_{slug}_play
-#   - select.sonorium_{slug}_theme
-#   - select.sonorium_{slug}_preset
-#   - number.sonorium_{slug}_volume
-#   - sensor.sonorium_{slug}_status
-#   - sensor.sonorium_{slug}_speakers
+# Per-session entities:
+#   - switch.sonorium_{slug}_play     (play/pause)
+#   - select.sonorium_{slug}_theme    (theme selector)
+#   - select.sonorium_{slug}_preset   (preset selector)
+#   - number.sonorium_{slug}_volume   (volume 0-100)
+#   - sensor.sonorium_{slug}_status   (current status)
+#   - sensor.sonorium_{slug}_speakers (speaker info)
+
+# Example card for session "Channel 1" (slug: channel_1)
+# Duplicate and modify the slug for each session you want to control
 
 type: vertical-stack
 cards:
   - type: entities
-    title: Sonorium
+    title: "Sonorium - Channel 1"
     show_header_toggle: false
     entities:
-      - entity: select.sonorium_session
-        name: Session
-      - entity: switch.sonorium_play
+      - entity: switch.sonorium_channel_1_play
         name: Play
-      - entity: select.sonorium_theme
+      - entity: select.sonorium_channel_1_theme
         name: Theme
-      - entity: select.sonorium_preset
+      - entity: select.sonorium_channel_1_preset
         name: Preset
-      - entity: number.sonorium_volume
+      - entity: number.sonorium_channel_1_volume
         name: Volume
-      - entity: sensor.sonorium_status
+      - entity: sensor.sonorium_channel_1_status
         name: Status
-      - entity: sensor.sonorium_active_sessions
-        name: Active Sessions
-      - entity: switch.sonorium_stop_all
-        name: Stop All
+      - entity: sensor.sonorium_channel_1_speakers
+        name: Speakers
+
+  # Example for a second session "Channel 2" (slug: channel_2)
+  # - type: entities
+  #   title: "Sonorium - Channel 2"
+  #   show_header_toggle: false
+  #   entities:
+  #     - entity: switch.sonorium_channel_2_play
+  #       name: Play
+  #     - entity: select.sonorium_channel_2_theme
+  #       name: Theme
+  #     - entity: number.sonorium_channel_2_volume
+  #       name: Volume
