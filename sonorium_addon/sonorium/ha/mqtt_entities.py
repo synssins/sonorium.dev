@@ -485,6 +485,12 @@ class SonoriumMQTTManager:
         for session in self.state.sessions.values():
             await self.add_session_entities(session)
 
+        # Auto-select first session so global controls work immediately after restart
+        if self.state.sessions and not self._selected_session_id:
+            first_session = next(iter(self.state.sessions.values()))
+            self._selected_session_id = first_session.id
+            logger.info(f"  Auto-selected session: {first_session.name}")
+
         # Publish global entities
         await self._publish_global_entities()
 
