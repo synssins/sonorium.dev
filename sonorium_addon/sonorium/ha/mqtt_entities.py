@@ -4,6 +4,7 @@ MQTT Entity Management for Sonorium Sessions
 Creates and manages Home Assistant entities via MQTT Discovery:
 - switch.sonorium_{session}_play - Play/pause toggle
 - select.sonorium_{session}_theme - Theme selector
+- select.sonorium_{session}_preset - Preset selector (per-theme)
 - number.sonorium_{session}_volume - Volume control
 - sensor.sonorium_{session}_status - Current status
 - sensor.sonorium_{session}_speakers - Speaker info
@@ -45,23 +46,26 @@ class SessionMQTTEntities:
         mqtt_publish: Callable[[str, str, bool], Awaitable[None]],
         device_info: dict,
         themes: list[dict] = None,
+        get_presets_for_theme: Callable[[str], list[dict]] = None,
     ):
         """
         Initialize entity manager for a session.
-        
+
         Args:
             session: The session to create entities for
             entity_prefix: Prefix for entity IDs (e.g., "sonorium")
             mqtt_publish: Async function to publish MQTT messages
             device_info: HA device info dict for grouping entities
             themes: List of available themes for select entity
+            get_presets_for_theme: Callback to get presets for a theme ID
         """
         self.session = session
         self.prefix = entity_prefix
         self.mqtt_publish = mqtt_publish
         self.device_info = device_info
         self.themes = themes or []
-        
+        self.get_presets_for_theme = get_presets_for_theme
+
         self.slug = session.get_entity_slug()
         self.base_topic = f"homeassistant"
         self.state_topic_base = f"{entity_prefix}/{self.slug}"
@@ -79,10 +83,11 @@ class SessionMQTTEntities:
         """Publish MQTT discovery configs for all session entities."""
         await self._publish_play_switch()
         await self._publish_theme_select()
+        await self._publish_preset_select()
         await self._publish_volume_number()
         await self._publish_status_sensor()
         await self._publish_speakers_sensor()
-        
+
         logger.info(f"Published MQTT discovery for session '{self.session.name}'")
     
     async def remove_discovery(self):
@@ -90,15 +95,16 @@ class SessionMQTTEntities:
         entities = [
             ("switch", "play"),
             ("select", "theme"),
+            ("select", "preset"),
             ("number", "volume"),
             ("sensor", "status"),
             ("sensor", "speakers"),
         ]
-        
+
         for component, suffix in entities:
             topic = self._get_discovery_topic(component, suffix)
             await self.mqtt_publish(topic, "", retain=True)
-        
+
         logger.info(f"Removed MQTT discovery for session '{self.session.name}'")
     
     async def update_state(self):
@@ -109,21 +115,28 @@ class SessionMQTTEntities:
             "ON" if self.session.is_playing else "OFF",
             retain=True,
         )
-        
+
         # Theme select state
         await self.mqtt_publish(
             f"{self.state_topic_base}/theme/state",
             self.session.theme_id or "",
             retain=True,
         )
-        
+
+        # Preset select state
+        await self.mqtt_publish(
+            f"{self.state_topic_base}/preset/state",
+            self.session.preset_id or "",
+            retain=True,
+        )
+
         # Volume number state
         await self.mqtt_publish(
             f"{self.state_topic_base}/volume/state",
             str(self.session.volume),
             retain=True,
         )
-        
+
         # Status sensor
         if self.session.is_playing and self.session.theme_id:
             theme_name = self._get_theme_name(self.session.theme_id)
@@ -181,7 +194,35 @@ class SessionMQTTEntities:
         
         topic = self._get_discovery_topic("select", "theme")
         await self.mqtt_publish(topic, json.dumps(config), retain=True)
-    
+
+    async def _publish_preset_select(self):
+        """Publish preset selector discovery."""
+        unique_id = self._get_unique_id("preset")
+
+        # Get presets for the current theme
+        options = [""]  # Empty option for "no preset"
+        if self.session.theme_id and self.get_presets_for_theme:
+            presets = self.get_presets_for_theme(self.session.theme_id)
+            options.extend([p.get("id", "") for p in presets if p.get("id")])
+
+        config = {
+            "name": f"{self.session.name} Preset",
+            "unique_id": unique_id,
+            "object_id": f"{self.prefix}_{self.slug}_preset",
+            "state_topic": f"{self.state_topic_base}/preset/state",
+            "command_topic": f"{self.state_topic_base}/preset/set",
+            "options": options,
+            "icon": "mdi:tune-variant",
+            "device": self.device_info,
+        }
+
+        topic = self._get_discovery_topic("select", "preset")
+        await self.mqtt_publish(topic, json.dumps(config), retain=True)
+
+    async def update_preset_options(self):
+        """Re-publish preset select with updated options when theme changes."""
+        await self._publish_preset_select()
+
     async def _publish_volume_number(self):
         """Publish volume control discovery."""
         unique_id = self._get_unique_id("volume")
@@ -244,38 +285,41 @@ class SessionMQTTEntities:
 class SonoriumMQTTManager:
     """
     Manages all MQTT entities for Sonorium.
-    
+
     Handles:
     - Session entity creation/removal
-    - Command handling (play, theme, volume)
+    - Command handling (play, theme, volume, preset)
     - State synchronization
     - Global entities (stop all, active count)
     """
-    
+
     def __init__(
         self,
         state_store: StateStore,
         session_manager: SessionManager,
         mqtt_client,  # paho or fmtr.tools mqtt client
         entity_prefix: str = "sonorium",
+        theme_metadata_manager=None,
     ):
         """
         Initialize the MQTT manager.
-        
+
         Args:
             state_store: StateStore instance
             session_manager: SessionManager instance
             mqtt_client: MQTT client for publishing
             entity_prefix: Prefix for entity IDs
+            theme_metadata_manager: ThemeMetadataManager for preset access
         """
         self.state = state_store
         self.session_manager = session_manager
         self.mqtt_client = mqtt_client
         self.prefix = entity_prefix
-        
+        self._theme_metadata_manager = theme_metadata_manager
+
         # Track session entity managers
         self._session_entities: dict[str, SessionMQTTEntities] = {}
-        
+
         # Device info for grouping entities
         self.device_info = {
             "identifiers": [f"{entity_prefix}_device"],
@@ -283,13 +327,37 @@ class SonoriumMQTTManager:
             "model": "Ambient Soundscape Mixer",
             "manufacturer": "Sonorium",
         }
-        
+
         # Themes cache
         self._themes: list[dict] = []
-    
+
     def set_themes(self, themes: list[dict]):
         """Update the available themes list."""
         self._themes = themes
+
+    def get_presets_for_theme(self, theme_id: str) -> list[dict]:
+        """Get list of presets for a theme."""
+        if not self._theme_metadata_manager:
+            return []
+
+        try:
+            # Find the theme folder by ID
+            folder = self._theme_metadata_manager.get_folder_for_id(theme_id)
+            if not folder:
+                return []
+
+            metadata = self._theme_metadata_manager.get_metadata_by_folder(folder)
+            if not metadata or not metadata.presets:
+                return []
+
+            # Convert presets dict to list format
+            return [
+                {"id": pid, "name": pdata.get("name", pid)}
+                for pid, pdata in metadata.presets.items()
+            ]
+        except Exception as e:
+            logger.warning(f"Failed to get presets for theme {theme_id}: {e}")
+            return []
     
     async def _mqtt_publish(self, topic: str, payload: str, retain: bool = False):
         """Publish an MQTT message."""
@@ -328,22 +396,23 @@ class SonoriumMQTTManager:
         """Add MQTT entities for a new session."""
         if session.id in self._session_entities:
             return
-        
+
         entities = SessionMQTTEntities(
             session=session,
             entity_prefix=self.prefix,
             mqtt_publish=self._mqtt_publish,
             device_info=self.device_info,
             themes=self._themes,
+            get_presets_for_theme=self.get_presets_for_theme,
         )
-        
+
         await entities.publish_discovery()
         await entities.update_state()
-        
+
         # Update speakers sensor
         speaker_summary = self.session_manager.get_speaker_summary(session)
         await entities.update_speakers_sensor(speaker_summary)
-        
+
         self._session_entities[session.id] = entities
     
     async def remove_session_entities(self, session_id: str):
@@ -421,16 +490,17 @@ class SonoriumMQTTManager:
         topics = [
             f"{self.prefix}/stop_all/set",
         ]
-        
+
         # Add session-specific topics
         for session in self.state.sessions.values():
             slug = session.get_entity_slug()
             topics.extend([
                 f"{self.prefix}/{slug}/play/set",
                 f"{self.prefix}/{slug}/theme/set",
+                f"{self.prefix}/{slug}/preset/set",
                 f"{self.prefix}/{slug}/volume/set",
             ])
-        
+
         # Subscribe (implementation depends on MQTT client type)
         import asyncio
         try:
@@ -476,8 +546,17 @@ class SonoriumMQTTManager:
                 session = self.state.sessions.get(session_id)
                 if session:
                     await self.update_session_state(session)
+                    # Update preset options when theme changes
+                    await entities.update_preset_options()
                 return
-            
+
+            elif topic == f"{self.prefix}/{slug}/preset/set":
+                self.session_manager.update(session_id, preset_id=payload or None)
+                session = self.state.sessions.get(session_id)
+                if session:
+                    await self.update_session_state(session)
+                return
+
             elif topic == f"{self.prefix}/{slug}/volume/set":
                 try:
                     volume = int(float(payload))

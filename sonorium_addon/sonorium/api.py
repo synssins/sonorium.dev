@@ -232,6 +232,7 @@ class ApiSonorium(api.Base):
                     state_store=self._state_store,
                     session_manager=self._session_manager,
                     mqtt_client=self.client,
+                    theme_metadata_manager=self._theme_metadata_manager,
                 )
                 # Set available themes for the theme select entity
                 themes = [{"id": t.id, "name": t.name} for t in self.client.device.themes]
