@@ -63,16 +63,23 @@ class MQTTClient:
 
     def _on_disconnect(self, client, userdata, flags, reason_code, properties=None):
         logger.warning(f"  MQTT disconnected: {reason_code}")
-        self._connected.clear()
+        # Use call_soon_threadsafe since this callback runs in paho's thread
+        if self._loop:
+            self._loop.call_soon_threadsafe(self._connected.clear)
+        else:
+            self._connected.clear()
 
     def _on_message(self, client, userdata, message):
         """Route incoming messages to the handler."""
         topic = message.topic
         payload = message.payload.decode('utf-8', errors='replace')
 
-        if self._message_handler:
-            # Schedule the async handler
-            asyncio.create_task(self._message_handler(topic, payload))
+        if self._message_handler and self._loop:
+            # Schedule the async handler on the main event loop (thread-safe)
+            asyncio.run_coroutine_threadsafe(
+                self._message_handler(topic, payload),
+                self._loop
+            )
 
     def set_message_handler(self, handler: Callable[[str, str], Awaitable[None]]):
         """Set the async message handler for incoming MQTT messages."""
