@@ -52,31 +52,35 @@ Configure speakers, volume defaults, and other preferences.
 
 ![Settings](screenshots/Settings.png)
 
-## What's New in v0.2.47
+---
 
-### Sonos Speaker Support
-Full Sonos speaker integration using the SoCo library for direct device communication. No need for additional proxies or bridges—Sonorium discovers and streams to your Sonos speakers natively.
+## What's New
 
-**Technical Note:** Sonos playback uses the SoCo library with `force_radio=True` mode, which enables reliable HTTP audio streaming to Sonos devices without interruption.
+### Windows App v0.2.47
 
-### Arylic/Linkplay HTTP API
-Reliable streaming to Arylic and Linkplay-based speakers via their native HTTP API. This provides more stable playback than AirPlay for these devices.
+- **Sonos Speaker Support** - Full Sonos integration using SoCo library for direct device communication
+- **Arylic/Linkplay HTTP API** - Reliable streaming via native HTTP API (more stable than AirPlay)
+- **Configuration Preservation** - Launcher settings now persist correctly when core saves changes
+- **Sparse Playback Timing** - Fixed occasional sounds playing immediately at theme start
+- **Track Level Fixes** - Tracks start at correct volume when switching themes
+- **Audio Encoding** - Fixed PyAV frame format for proper stereo output
 
-### Sparse Playback Timing Fix
-Fixed timing issues with sparse playback mode where occasional sounds (thunder, bird calls) would sometimes play immediately at theme start instead of waiting for their natural interval. Sparse tracks now correctly honor their presence-based timing from the beginning.
+### Home Assistant Addon v1.2.40
 
-### Track Levels & Exclusive Groups
-Fixed an issue where tracks could start at incorrect volume levels when switching themes. Exclusive track groups (where only one sound plays at a time) now properly coordinate their playback.
+- **Dashboard Integration** - MQTT entities for full dashboard control (session select, theme/preset dropdowns, play/stop, volume)
+- **Human-Readable Names** - Theme and preset dropdowns show names instead of UUIDs
+- **Reliable Entity Discovery** - Fixed timing issues where entities showed "unavailable" after restart
+- **Auto-Session Selection** - First session auto-selected on startup for immediate control
+- **Morning Alarms** - Use HA automations to wake up to ambient sounds
 
-### Configuration Preservation
-Windows app now correctly preserves launcher settings when the core saves configuration changes. Your port, theme folder, and other preferences persist reliably.
+### Home Assistant Addon v1.2.17
 
-### Automatic Stream URL Detection (HA Addon)
-The Home Assistant addon now automatically detects your HA instance's IP address for the stream URL. No more manual configuration required—speakers connect reliably without needing to change the default `auto` setting.
+- **Direct Sonos Support** - Native streaming using SoCo library
+- **Automatic Stream URL** - Auto-detects HA IP address for stream URL
+- **Sparse Playback Timing** - Fixed occasional sounds playing immediately at theme start
+- **Track Level Fixes** - Proper volume levels when switching themes
 
-### Audio Encoding Improvements
-- Fixed PyAV frame format to use `s16p` (planar) for proper stereo output
-- Improved compatibility with newer PyAV API versions
+---
 
 ## Features
 

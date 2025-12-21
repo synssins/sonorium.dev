@@ -1,9 +1,0 @@
-views:
-  - title: Sonorium
-    path: sonorium
-    icon: mdi:music-circle
-    type: panel
-    cards:
-      - type: iframe
-        url: "http://192.168.1.104:8009"
-        aspect_ratio: "16:9"

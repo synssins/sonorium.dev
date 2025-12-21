@@ -8,6 +8,42 @@
 
 Sonorium lets you create immersive ambient audio environments throughout your home. Stream richly layered soundscapes—from distant thunder and rainfall to forest ambiance and ocean waves—to any combination of media players in your Home Assistant setup.
 
+## What's New in v1.2.40
+
+### Home Assistant Dashboard Integration
+Sonorium now publishes MQTT entities for seamless Home Assistant dashboard control:
+
+- **Session Select** - Switch between channels from your dashboard
+- **Theme/Preset Dropdowns** - Select themes and presets by name (not UUID)
+- **Play/Stop Controls** - Toggle playback per channel or globally
+- **Volume Sliders** - Adjust volume from dashboard cards
+- **Status Sensors** - See playback status and assigned speakers
+
+### Reliable MQTT Entity Discovery
+Fixed timing issues where entities would show "unavailable" after addon restart:
+- Proper delays between discovery config and state publication
+- Automatic cleanup of stale entities from previous versions
+- Auto-selection of first session on startup for immediate control
+
+### Morning Alarm Automations
+Use Sonorium with HA automations to wake up to ambient sounds:
+```yaml
+automation:
+  - alias: "Morning Wakeup"
+    trigger:
+      - platform: time
+        at: "07:00:00"
+    action:
+      - service: select.select_option
+        target:
+          entity_id: select.sonorium_channel_1_theme
+        data:
+          option: "Primeval Forest"
+      - service: switch.turn_on
+        target:
+          entity_id: switch.sonorium_channel_1_play
+```
+
 ## What's New in v1.2.17
 
 ### Direct Sonos Support with SoCo
