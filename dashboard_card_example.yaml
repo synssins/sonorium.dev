@@ -1,200 +1,46 @@
-# Sonorium Channel Dashboard Card
+# Sonorium Dashboard Card for Home Assistant
+# Updated for v1.2.27+ (paho-mqtt based entities)
+# Copy this entire card into your dashboard YAML editor
 #
-# Replace <channel_slug> with your channel's entity slug.
-# The slug is generated from the channel name:
-#   "Bedroom Level" -> "bedroom_level"
-#   "Living Room" -> "living_room"
+# ENTITIES REFERENCE:
+# Global (control selected session):
+#   - select.sonorium_session         (session selector)
+#   - switch.sonorium_play            (play/pause)
+#   - select.sonorium_theme           (theme)
+#   - select.sonorium_preset          (preset)
+#   - number.sonorium_volume          (volume)
+#   - sensor.sonorium_status          (status)
+#   - sensor.sonorium_speakers        (speakers)
+#   - switch.sonorium_stop_all        (stop all)
+#   - sensor.sonorium_active_sessions (active count)
 #
-# Example: If your channel is named "Bedroom", the entities would be:
-#   - switch.sonorium_bedroom_play
-#   - select.sonorium_bedroom_theme
-#   - number.sonorium_bedroom_volume
-#   - sensor.sonorium_bedroom_speakers
+# Per-session (replace {slug} with session name lowercase):
+#   - switch.sonorium_{slug}_play
+#   - select.sonorium_{slug}_theme
+#   - select.sonorium_{slug}_preset
+#   - number.sonorium_{slug}_volume
+#   - sensor.sonorium_{slug}_status
+#   - sensor.sonorium_{slug}_speakers
 
-# =============================================================================
-# OPTION 1: Simple Entities Card
-# =============================================================================
-type: entities
-title: Sonorium - Bedroom
-show_header_toggle: false
-entities:
-  - entity: switch.sonorium_bedroom_play
-    name: Play/Pause
-  - entity: select.sonorium_bedroom_theme
-    name: Theme
-  - entity: number.sonorium_bedroom_volume
-    name: Volume
-  - entity: sensor.sonorium_bedroom_speakers
-    name: Speakers
-
----
-
-# =============================================================================
-# OPTION 2: Vertical Stack with Better Layout
-# =============================================================================
 type: vertical-stack
 cards:
-  - type: horizontal-stack
-    cards:
-      - type: button
-        entity: switch.sonorium_bedroom_play
+  - type: entities
+    title: Sonorium
+    show_header_toggle: false
+    entities:
+      - entity: select.sonorium_session
+        name: Session
+      - entity: switch.sonorium_play
         name: Play
-        icon: mdi:play-pause
-        tap_action:
-          action: toggle
-        show_state: true
-      - type: button
-        entity: button.sonorium_stop_all
-        name: Stop All
-        icon: mdi:stop
-        tap_action:
-          action: press
-
-  - type: entities
-    entities:
-      - entity: select.sonorium_bedroom_theme
+      - entity: select.sonorium_theme
         name: Theme
-      - entity: number.sonorium_bedroom_volume
+      - entity: select.sonorium_preset
+        name: Preset
+      - entity: number.sonorium_volume
         name: Volume
-
-  - type: markdown
-    content: >
-      **Speakers:** {{ states('sensor.sonorium_bedroom_speakers') }}
-
----
-
-# =============================================================================
-# OPTION 3: Mushroom Cards (if you have HACS Mushroom installed)
-# =============================================================================
-type: vertical-stack
-cards:
-  - type: custom:mushroom-title-card
-    title: Sonorium - Bedroom
-    subtitle: Ambient Soundscape
-
-  - type: horizontal-stack
-    cards:
-      - type: custom:mushroom-entity-card
-        entity: switch.sonorium_bedroom_play
-        icon: mdi:play-pause
-        tap_action:
-          action: toggle
-        layout: vertical
-        fill_container: true
-
-      - type: custom:mushroom-entity-card
-        entity: button.sonorium_stop_all
-        icon: mdi:stop-circle
-        tap_action:
-          action: press
-        layout: vertical
-        fill_container: true
-
-  - type: custom:mushroom-select-card
-    entity: select.sonorium_bedroom_theme
-    icon: mdi:music-box-multiple
-
-  - type: custom:mushroom-number-card
-    entity: number.sonorium_bedroom_volume
-    icon: mdi:volume-high
-    layout: horizontal
-    display_mode: slider
-
-  - type: custom:mushroom-chips-card
-    chips:
-      - type: entity
-        entity: sensor.sonorium_bedroom_speakers
-        icon: mdi:speaker-multiple
-
----
-
-# =============================================================================
-# OPTION 4: Compact Card with Conditional Play Icon
-# =============================================================================
-type: vertical-stack
-cards:
-  - type: horizontal-stack
-    cards:
-      - type: entity
-        entity: switch.sonorium_bedroom_play
-        name: Bedroom
-        icon: mdi:music-circle
-      - type: entity
-        entity: sensor.sonorium_active_sessions
-        name: Active
-
-  - type: horizontal-stack
-    cards:
-      - type: entity
-        entity: select.sonorium_bedroom_theme
-        name: Theme
-      - type: entity
-        entity: number.sonorium_bedroom_volume
-        name: Vol
-
----
-
-# =============================================================================
-# OPTION 5: Media Control Card Style (custom styling)
-# =============================================================================
-type: vertical-stack
-cards:
-  - type: custom:button-card
-    entity: switch.sonorium_bedroom_play
-    name: Bedroom Ambiance
-    icon: mdi:music-circle
-    show_state: true
-    state:
-      - value: "on"
-        icon: mdi:pause-circle
-        styles:
-          icon:
-            - color: var(--primary-color)
-      - value: "off"
-        icon: mdi:play-circle
-    tap_action:
-      action: toggle
-    styles:
-      card:
-        - height: 80px
-      name:
-        - font-size: 16px
-        - font-weight: bold
-
-  - type: entities
-    entities:
-      - entity: select.sonorium_bedroom_theme
-        name: Theme
-        icon: mdi:playlist-music
-      - entity: number.sonorium_bedroom_volume
-        name: Volume
-        icon: mdi:volume-high
-
----
-
-# =============================================================================
-# MULTI-CHANNEL OVERVIEW (for multiple channels)
-# =============================================================================
-type: vertical-stack
-cards:
-  - type: markdown
-    content: "## Sonorium Channels"
-
-  - type: glance
-    entities:
-      - entity: switch.sonorium_bedroom_play
-        name: Bedroom
-      - entity: switch.sonorium_living_room_play
-        name: Living Room
-      - entity: switch.sonorium_office_play
-        name: Office
-    show_state: true
-    columns: 3
-
-  - type: entities
-    title: Global Controls
-    entities:
+      - entity: sensor.sonorium_status
+        name: Status
       - entity: sensor.sonorium_active_sessions
-        name: Active Channels
-      - entity: button.sonorium_stop_all
-        name: Stop All Channels
+        name: Active Sessions
+      - entity: switch.sonorium_stop_all
+        name: Stop All
