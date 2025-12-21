@@ -12,12 +12,12 @@ RUN apk add --no-cache \
 WORKDIR /app
 
 # Install Python dependencies
+# Note: 'av' (PyAV) is installed via fmtr.tools[av] below to avoid version conflicts
 RUN pip3 install --no-cache-dir --break-system-packages \
     pyyaml \
     appdirs \
     cachetools \
     fastapi \
-    av \
     uvicorn \
     numpy \
     pydantic \
@@ -61,6 +61,6 @@ RUN chmod a+x /run.sh
 # Read version from the single source of truth (sonorium/version file)
 # Note: LABEL is set at build time, reading from the version file
 ARG ADDON_VERSION
-LABEL io.hass.version="${ADDON_VERSION:-1.2.40}"
+LABEL io.hass.version="${ADDON_VERSION:-1.2.41-dev}"
 
 CMD [ "/run.sh" ]
