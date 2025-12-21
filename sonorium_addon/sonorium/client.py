@@ -106,16 +106,25 @@ class MQTTClient:
         self._client.loop_stop()
         self._client.disconnect()
 
-    def publish(self, topic: str, payload: str, retain: bool = False):
+    def publish(self, topic: str, payload: str, retain: bool = False, qos: int = 1):
         """
         Publish a message (sync, for compatibility with existing code).
-        Returns immediately, message is queued.
+        Uses QoS 1 by default for reliable delivery.
         """
-        self._client.publish(topic, payload, retain=retain)
+        result = self._client.publish(topic, payload, qos=qos, retain=retain)
+        # Wait for publish to complete for QoS > 0
+        if qos > 0:
+            result.wait_for_publish(timeout=5.0)
 
-    async def publish_async(self, topic: str, payload: str, retain: bool = False):
-        """Publish a message asynchronously."""
-        self._client.publish(topic, payload, retain=retain)
+    async def publish_async(self, topic: str, payload: str, retain: bool = False, qos: int = 1):
+        """Publish a message asynchronously with reliable delivery."""
+        result = self._client.publish(topic, payload, qos=qos, retain=retain)
+        # Wait for publish confirmation in a thread-safe way
+        if qos > 0 and self._loop:
+            await self._loop.run_in_executor(
+                None,
+                lambda: result.wait_for_publish(timeout=5.0)
+            )
 
     def subscribe(self, topic: str):
         """Subscribe to a topic."""

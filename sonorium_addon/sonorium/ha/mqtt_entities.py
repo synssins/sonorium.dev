@@ -367,14 +367,17 @@ class SonoriumMQTTManager:
             return []
     
     async def _mqtt_publish(self, topic: str, payload: str, retain: bool = False):
-        """Publish an MQTT message."""
+        """Publish an MQTT message with logging."""
         import asyncio
         try:
             if hasattr(self.mqtt_client, 'publish'):
-                # haco/paho-style client - may be sync or async
-                result = self.mqtt_client.publish(topic, payload, retain=retain)
-                if asyncio.iscoroutine(result):
-                    await result
+                # paho-style client - runs in executor to avoid blocking
+                loop = asyncio.get_running_loop()
+                await loop.run_in_executor(
+                    None,
+                    lambda: self.mqtt_client.publish(topic, payload, retain=retain)
+                )
+                logger.debug(f"  Published to {topic} (retain={retain})")
             elif hasattr(self.mqtt_client, 'send'):
                 # fmtr.tools style
                 await self.mqtt_client.send(topic, payload, retain=retain)
@@ -383,20 +386,49 @@ class SonoriumMQTTManager:
         except Exception as e:
             logger.error(f"Failed to publish to {topic}: {e}")
     
+    async def _clear_stale_entities(self):
+        """Clear any stale entity configurations by publishing empty payloads."""
+        logger.info("  Clearing stale MQTT entity configs...")
+
+        # List of all global entity topics to clear
+        global_entities = [
+            ("select", "session"),
+            ("switch", "play"),
+            ("select", "theme"),
+            ("select", "preset"),
+            ("number", "volume"),
+            ("sensor", "status"),
+            ("sensor", "speakers"),
+            ("switch", "stop_all"),
+            ("sensor", "active_sessions"),
+        ]
+
+        for component, suffix in global_entities:
+            topic = f"homeassistant/{component}/{self.prefix}_{suffix}/config"
+            await self._mqtt_publish(topic, "", retain=True)
+
+        # Small delay to ensure clearing is processed
+        import asyncio
+        await asyncio.sleep(0.5)
+        logger.info("  Stale entities cleared")
+
     async def initialize(self):
         """Initialize MQTT entities for all sessions."""
         logger.info("Initializing MQTT entities...")
-        
+
+        # Clear stale entities first
+        await self._clear_stale_entities()
+
         # Create entities for existing sessions
         for session in self.state.sessions.values():
             await self.add_session_entities(session)
-        
+
         # Publish global entities
         await self._publish_global_entities()
-        
+
         # Subscribe to command topics
         await self._subscribe_commands()
-        
+
         logger.info(f"MQTT initialized with {len(self._session_entities)} sessions")
     
     async def add_session_entities(self, session: Session):
@@ -462,7 +494,8 @@ class SonoriumMQTTManager:
     
     async def _publish_global_entities(self):
         """Publish global Sonorium entities including session selector and controls."""
-        
+        logger.info("  Publishing global entities...")
+
         # === SESSION SELECTOR ===
         # Dropdown to select which session to control (uses names, maps to IDs)
         session_options = [""]  # Empty = no selection
@@ -488,7 +521,8 @@ class SonoriumMQTTManager:
             json.dumps(config),
             retain=True,
         )
-        
+        logger.info("    Published: select.sonorium_session")
+
         # Publish initial session state (as name, not ID)
         selected_name = ""
         if self._selected_session_id:
