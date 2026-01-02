@@ -196,9 +196,14 @@ class ClientSonorium:
         mqtt_username = settings.mqtt_username if settings.mqtt_username else None
         mqtt_password = settings.mqtt_password if settings.mqtt_password else None
 
-        # If host/port not configured, fetch from Supervisor API
-        if not mqtt_host or not mqtt_port:
-            logger.info("  MQTT host/port not configured, fetching from Supervisor API...")
+        # If host is manually configured but port is not, use default port (skip API)
+        if mqtt_host and not mqtt_port:
+            mqtt_port = 1883
+            logger.info(f"  MQTT host manually configured, using default port: {mqtt_port}")
+
+        # Only call Supervisor API if in auto-detect mode (no manual host)
+        if not mqtt_host:
+            logger.info("  MQTT host set to 'auto', fetching from Supervisor API...")
             try:
                 url = f"{settings.ha_supervisor_api}/services/mqtt"
                 req = urllib.request.Request(
