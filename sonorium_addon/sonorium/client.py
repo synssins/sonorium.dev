@@ -50,6 +50,11 @@ class MQTTClient:
         if username and password:
             self._client.username_pw_set(username, password)
 
+    def __repr__(self) -> str:
+        """Safe repr that never exposes password."""
+        auth = "authenticated" if self.username else "anonymous"
+        return f"MQTTClient({self.hostname}:{self.port}, {auth})"
+
     def _on_connect(self, client, userdata, flags, reason_code, properties=None):
         if reason_code == 0:
             logger.info("  MQTT connected successfully")
@@ -157,6 +162,10 @@ class ClientSonorium:
             password=password,
         )
 
+    def __repr__(self) -> str:
+        """Safe repr that delegates to MQTTClient (never exposes password)."""
+        return f"ClientSonorium(mqtt={self._mqtt!r})"
+
     @property
     def mqtt_client(self) -> MQTTClient:
         """Get the MQTT client for entity managers."""
@@ -196,7 +205,9 @@ class ClientSonorium:
         mqtt_host = settings.mqtt_host if settings.mqtt_host and settings.mqtt_host.lower() != "auto" else None
         mqtt_port = settings.mqtt_port if settings.mqtt_port and settings.mqtt_port > 0 else None
         mqtt_username = settings.mqtt_username if settings.mqtt_username else None
-        mqtt_password = settings.mqtt_password if settings.mqtt_password else None
+        # Extract password from SecretStr (never log this value!)
+        mqtt_password = settings.mqtt_password.get_secret_value() if settings.mqtt_password else None
+        mqtt_password = mqtt_password if mqtt_password else None  # Empty string -> None
 
         # If host is set but port is not, use default port
         if mqtt_host and not mqtt_port:
