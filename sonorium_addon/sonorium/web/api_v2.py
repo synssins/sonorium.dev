@@ -302,6 +302,7 @@ def create_api_router(
     channel_manager=None,
     cycle_manager=None,
     plugin_manager=None,
+    mqtt_manager=None,
 ) -> APIRouter:
     """
     Create the API router with all endpoints.
@@ -315,6 +316,7 @@ def create_api_router(
         channel_manager: Optional ChannelManager for channel-based streaming
         cycle_manager: Optional CycleManager for theme cycling
         plugin_manager: Optional PluginManager for plugin endpoints
+        mqtt_manager: Optional MQTT manager for HA entity updates
 
     Returns:
         Configured APIRouter
@@ -440,6 +442,10 @@ def create_api_router(
     @router.put("/sessions/{session_id}")
     async def update_session(session_id: str, request: UpdateSessionRequest) -> SessionResponse:
         """Update an existing session."""
+        # Get old session name to detect changes for MQTT discovery refresh
+        old_session = session_manager.get(session_id)
+        old_name = old_session.name if old_session else None
+
         session, added_speakers, removed_speakers = session_manager.update(
             session_id=session_id,
             theme_id=request.theme_id,
@@ -456,6 +462,13 @@ def create_api_router(
         # Apply live speaker changes if session is playing
         if added_speakers or removed_speakers:
             await session_manager.apply_speaker_changes(session, added_speakers, removed_speakers)
+
+        # Refresh MQTT discovery if session name changed (Issue #16)
+        if mqtt_manager and old_name and session.name != old_name:
+            try:
+                await mqtt_manager.refresh_session_discovery(session)
+            except Exception as e:
+                logger.warning(f"Failed to refresh MQTT discovery for renamed session: {e}")
 
         return _session_to_response(session, session_manager)
     

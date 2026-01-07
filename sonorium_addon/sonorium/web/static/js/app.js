@@ -840,12 +840,19 @@ async function updateSessionVolume(sessionId, volume) {
 
 function updateSessionVolumeDisplay(sessionId, value) {
     // Update the volume display span in real-time while dragging
-    const card = document.querySelector(`.session-card[data-session-id="${sessionId}"]`);
+    // Use CSS.escape for safe attribute selector with any session ID format
+    const escapedId = CSS.escape(sessionId);
+    const card = document.querySelector(`.session-card[data-session-id="${escapedId}"]`);
     if (card) {
         const valueSpan = card.querySelector('.volume-value');
         if (valueSpan) {
             valueSpan.textContent = `${value}%`;
         }
+    }
+    // Also update in session list if visible (for consistency)
+    const session = sessions.find(s => s.id === sessionId);
+    if (session) {
+        session.volume = parseInt(value);
     }
 }
 
@@ -1311,6 +1318,7 @@ document.addEventListener('click', function(event) {
 // Speakers View
 function renderSpeakersList() {
     const container = document.getElementById('speaker-list-content');
+    if (!container) return; // Guard against missing element
     if (!speakerHierarchy) {
         container.innerHTML = '<div class="loading"><div class="spinner"></div>Loading...</div>';
         return;
@@ -2941,9 +2949,9 @@ async function loadAudioSettings() {
         const result = await api('GET', '/settings');
         if (result && !result.error) {
             audioSettings = {
-                crossfade_duration: result.crossfade_duration || 3.0,
-                default_volume: result.default_volume || 60,
-                master_gain: result.master_gain || 60
+                crossfade_duration: result.crossfade_duration ?? 3.0,
+                default_volume: result.default_volume ?? 60,
+                master_gain: result.master_gain ?? 60
             };
             applyAudioSettingsToUI();
         }
@@ -3268,23 +3276,89 @@ async function stopNetworkSpeaker(speakerId, pluginId) {
 
 // Legacy functions (kept for compatibility but not used in standalone)
 function renderSettingsSpeakerTree() {
-    // No longer used in standalone - replaced by local audio devices
+    const container = document.getElementById('settings-speaker-tree');
+    if (!container) return;
+
+    if (!speakerHierarchy) {
+        container.innerHTML = '<div class="loading"><div class="spinner"></div>Loading speakers...</div>';
+        return;
+    }
+
+    const allSpeakers = getAllSpeakersFlat();
+    if (allSpeakers.length === 0) {
+        container.innerHTML = '<p class="text-muted">No speakers found. Click "Refresh from HA" to scan.</p>';
+        return;
+    }
+
+    // Get enabled speakers list (empty = all enabled for backwards compat)
+    const enabledSpeakers = speakerHierarchy.enabled_speakers || [];
+    const allEnabled = enabledSpeakers.length === 0;
+
+    const html = allSpeakers.map(speaker => {
+        const isEnabled = allEnabled || enabledSpeakers.includes(speaker.entity_id);
+        return `
+            <div class="settings-speaker-item">
+                <label class="checkbox-label">
+                    <input type="checkbox"
+                           ${isEnabled ? 'checked' : ''}
+                           onchange="toggleSpeakerEnabled('${speaker.entity_id}', this.checked)">
+                    <span class="speaker-name">${escapeHtml(speaker.name)}</span>
+                    <span class="speaker-area">${speaker.area || 'Unassigned'}</span>
+                </label>
+            </div>
+        `;
+    }).join('');
+
+    container.innerHTML = html;
 }
 
 async function toggleSpeakerEnabled(entityId, enabled) {
-    // No-op for standalone
+    try {
+        await api('POST', `/speakers/${encodeURIComponent(entityId)}/enabled`, { enabled });
+        await loadSpeakerHierarchy();
+    } catch (error) {
+        showToast(error.message, 'error');
+        renderSettingsSpeakerTree(); // Revert UI on error
+    }
 }
 
 async function enableAllSpeakers() {
-    // No-op for standalone
+    try {
+        await api('POST', '/speakers/enable-all');
+        await loadSpeakerHierarchy();
+        renderSettingsSpeakerTree();
+        showToast('All speakers enabled', 'success');
+    } catch (error) {
+        showToast(error.message, 'error');
+    }
 }
 
 async function disableAllSpeakers() {
-    // No-op for standalone
+    try {
+        await api('POST', '/speakers/disable-all');
+        await loadSpeakerHierarchy();
+        renderSettingsSpeakerTree();
+        showToast('All speakers disabled', 'success');
+    } catch (error) {
+        showToast(error.message, 'error');
+    }
 }
 
 async function refreshSpeakersFromHA() {
-    // No-op for standalone - replaced by refreshNetworkSpeakers
+    const container = document.getElementById('settings-speaker-tree');
+    if (container) {
+        container.innerHTML = '<div class="loading"><div class="spinner"></div>Refreshing from Home Assistant...</div>';
+    }
+
+    try {
+        const result = await api('POST', '/speakers/refresh');
+        await loadSpeakerHierarchy();
+        renderSettingsSpeakerTree();
+        showToast(`Found ${result.total_speakers || 0} speakers`, 'success');
+    } catch (error) {
+        showToast(error.message, 'error');
+        renderSettingsSpeakerTree();
+    }
 }
 
 // Status View

@@ -551,15 +551,36 @@ class SonoriumMQTTManager:
         if session.id not in self._session_entities:
             await self.add_session_entities(session)
             return
-        
+
         entities = self._session_entities[session.id]
         entities.session = session  # Update reference
         await entities.update_state()
-        
+
         # Update speakers sensor
         speaker_summary = self.session_manager.get_speaker_summary(session)
         await entities.update_speakers_sensor(speaker_summary)
-    
+
+    async def refresh_session_discovery(self, session: Session):
+        """
+        Republish MQTT discovery for a session.
+
+        Call this when a session's name or other discoverable properties change
+        to update the entity names in Home Assistant.
+        """
+        if session.id not in self._session_entities:
+            await self.add_session_entities(session)
+            return
+
+        entities = self._session_entities[session.id]
+        entities.session = session  # Update reference with new name
+        await entities.publish_discovery()  # Republish with updated name
+        await entities.update_state()
+
+        # Also update the session selector since it shows session names
+        await self._update_session_selector_options()
+
+        logger.info(f"  Refreshed MQTT discovery for session '{session.name}'")
+
     async def _publish_global_entities(self):
         """Publish global Sonorium entities including session selector and controls."""
         import asyncio
